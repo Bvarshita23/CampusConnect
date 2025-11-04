@@ -1,0 +1,19 @@
+.animated-wave-text {
+  background: linear-gradient(270deg, #38bdf8, #0ea5e9, #3b82f6, #38bdf8);
+  background-size: 800% 800%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: smoothWave 8s ease-in-out infinite;
+}
+
+@keyframes smoothWave {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
