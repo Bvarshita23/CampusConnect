@@ -37,30 +37,12 @@ export default function AddFoundItem({ onItemAdded }) {
       const token = localStorage.getItem("token");
       const data = new FormData();
 
+      // ✅ include status explicitly
+      data.append("status", "pending"); // << add this line
+
       Object.entries(form).forEach(([key, value]) => {
         if (key === "options") data.append(key, JSON.stringify(value));
         else data.append(key, value);
-      });
-
-      const res = await fetch("http://localhost:8080/api/v1/lostfound", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: data,
-      });
-
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.message);
-
-      toast.success("✅ Item added successfully!");
-      setForm({
-        type: "found",
-        title: "",
-        description: "",
-        location: "",
-        image: null,
-        uniqueQuestion: "",
-        options: ["", "", "", ""],
-        correctAnswer: "",
       });
 
       // trigger refresh in dashboard if callback exists
@@ -84,7 +66,7 @@ export default function AddFoundItem({ onItemAdded }) {
         </h2>
         {/* Type */}
         <label className="block text-gray-600 font-medium">Type</label>
-        const [type] = useState("found");
+        {/*const [type] = useState("found");*/}
         {/* Title */}
         <label className="block text-gray-600 font-medium">Title</label>
         <input

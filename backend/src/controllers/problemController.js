@@ -1,169 +1,99 @@
 import Problem from "../models/Problem.js";
 
 /**
- * Create a new problem report
- * Roles: student, faculty (any authenticated user)
+ * ✅ Create new problem
  */
 export const createProblem = async (req, res) => {
   try {
-    const { title, description, category, department } = req.body;
-    if (!title || !description || !department) {
+    const { title, description, category } = req.body;
+
+    if (!title || !description) {
       return res
         .status(400)
-        .json({ message: "title, description, and department are required." });
+        .json({ success: false, message: "All fields are required" });
     }
 
-    const doc = await Problem.create({
+    const newProblem = await Problem.create({
       title,
       description,
-      category: category || "Other",
-      department,
-      submittedBy: {
-        _id: req.user._id,
-        name: req.user.name || req.user.email?.split("@")[0],
-        email: req.user.email,
-        role: req.user.role,
-      },
+      category,
+      postedBy: req.user._id,
+      status: "Pending",
     });
 
-    return res.status(201).json({ message: "Problem submitted", problem: doc });
+    res.status(201).json({
+      success: true,
+      message: "Problem reported successfully",
+      problem: newProblem,
+    });
   } catch (err) {
     console.error("createProblem error:", err);
-    return res.status(500).json({ message: "Server error" });
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to report problem" });
   }
 };
 
 /**
- * Get problems (role-aware)
- * - student: only own problems
- * - faculty: by department (their department if present in profile query param or token), or all if admin flag provided
- * - admin: all problems with optional filters
- * Query params: status, category, department, search, page, limit
+ * ✅ Get all problems (everyone)
  */
-export const getProblems = async (req, res) => {
+export const getAllProblems = async (req, res) => {
   try {
-    const { role, department: userDept } = req.user;
-    const {
-      status,
-      category,
-      department,
-      search,
-      page = 1,
-      limit = 10,
-    } = req.query;
-
-    const q = {};
-    if (status) q.status = status;
-    if (category) q.category = category;
-
-    // role-based scoping
-    if (role === "student") {
-      q["submittedBy._id"] = req.user._id;
-    } else if (role === "faculty") {
-      q.department = department || userDept || q.department; // faculty sees own department by default
-    } else if (role === "admin") {
-      if (department) q.department = department;
-    }
-
-    // simple search on title/description
-    if (search) {
-      q.$or = [
-        { title: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
-      ];
-    }
-
-    const skip = (Number(page) - 1) * Number(limit);
-    const [items, total] = await Promise.all([
-      Problem.find(q).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
-      Problem.countDocuments(q),
-    ]);
-
-    return res.json({
-      total,
-      page: Number(page),
-      pages: Math.ceil(total / Number(limit)),
-      problems: items,
-    });
+    const problems = await Problem.find()
+      .populate("postedBy", "name email role")
+      .sort({ createdAt: -1 });
+    res.json({ success: true, problems });
   } catch (err) {
-    console.error("getProblems error:", err);
-    return res.status(500).json({ message: "Server error" });
+    console.error("getAllProblems error:", err);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch problems" });
   }
 };
 
 /**
- * Update status (admin or department faculty)
- * Allowed status: OPEN | IN_PROGRESS | RESOLVED | REJECTED
+ * ✅ Get logged-in user's problems only
  */
-export const updateStatus = async (req, res) => {
+export const getMyProblems = async (req, res) => {
+  try {
+    const problems = await Problem.find({ postedBy: req.user._id }).sort({
+      createdAt: -1,
+    });
+    res.json({ success: true, problems });
+  } catch (err) {
+    console.error("getMyProblems error:", err);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch user's problems" });
+  }
+};
+
+/**
+ * ✅ Update problem status (admin/superadmin)
+ */
+export const updateProblemStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    const allowed = ["OPEN", "IN_PROGRESS", "RESOLVED", "REJECTED"];
-    if (!allowed.includes(status))
-      return res.status(400).json({ message: "Invalid status" });
 
     const problem = await Problem.findById(id);
-    if (!problem) return res.status(404).json({ message: "Problem not found" });
-
-    // authorization: admins always; faculty only for their department
-    if (
-      req.user.role === "faculty" &&
-      req.user.department !== problem.department
-    ) {
+    if (!problem)
       return res
-        .status(403)
-        .json({ message: "Not allowed to update other departments." });
-    }
+        .status(404)
+        .json({ success: false, message: "Problem not found" });
 
-    problem.status = status;
+    problem.status = status || problem.status;
     await problem.save();
-    return res.json({ message: "Status updated", problem });
-  } catch (err) {
-    console.error("updateStatus error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-};
 
-/**
- * Add a comment (any authenticated user who can see the problem)
- */
-export const addComment = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { text } = req.body;
-    if (!text?.trim())
-      return res.status(400).json({ message: "Comment text required" });
-
-    const problem = await Problem.findById(id);
-    if (!problem) return res.status(404).json({ message: "Problem not found" });
-
-    // visibility check
-    if (
-      req.user.role === "student" &&
-      String(problem.submittedBy._id) !== String(req.user._id)
-    ) {
-      return res.status(403).json({ message: "Not allowed." });
-    }
-    if (
-      req.user.role === "faculty" &&
-      req.user.department !== problem.department
-    ) {
-      return res.status(403).json({ message: "Not allowed." });
-    }
-
-    problem.comments.push({
-      by: {
-        _id: req.user._id,
-        name: req.user.name || req.user.email,
-        role: req.user.role,
-      },
-      text,
+    res.json({
+      success: true,
+      message: "Problem status updated",
+      problem,
     });
-    await problem.save();
-    return res.json({ message: "Comment added", problem });
   } catch (err) {
-    console.error("addComment error:", err);
-    return res.status(500).json({ message: "Server error" });
+    console.error("updateProblemStatus error:", err);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to update status" });
   }
 };

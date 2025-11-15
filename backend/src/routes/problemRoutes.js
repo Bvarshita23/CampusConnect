@@ -1,17 +1,24 @@
 import express from "express";
-import { authRequired } from "../middlewares/authMiddleware.js";
+import { verifyToken } from "../middlewares/authMiddleware.js";
 import {
   createProblem,
-  getProblems,
-  updateStatus,
-  addComment,
+  getAllProblems,
+  getMyProblems,
+  updateProblemStatus,
 } from "../controllers/problemController.js";
 
 const router = express.Router();
 
-router.post("/", authRequired, createProblem);
-router.get("/", authRequired, getProblems);
-router.patch("/:id/status", authRequired, updateStatus);
-router.post("/:id/comments", authRequired, addComment);
+// ✅ Add new problem (student/faculty)
+router.post("/", verifyToken, createProblem);
+
+// ✅ Get only logged-in user’s problems
+router.get("/my", verifyToken, getMyProblems);
+
+// ✅ Get all problems (for everyone to view)
+router.get("/", verifyToken, getAllProblems);
+
+// ✅ Update problem status (admin/superadmin)
+router.patch("/:id/status", verifyToken, updateProblemStatus);
 
 export default router;

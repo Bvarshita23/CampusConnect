@@ -1,167 +1,104 @@
-import { useEffect, useState } from "react";
-import { authFetch } from "../../utils/api";
-import { toast } from "react-hot-toast";
-
-const STATUS = ["OPEN", "IN_PROGRESS", "RESOLVED", "REJECTED"];
+import React, { useEffect, useState } from "react";
+import DashboardLayout from "../../components/DashboardLayout";
+import axios from "../../api/axiosConfig";
+import { motion } from "framer-motion";
 
 export default function ManageProblems() {
-  const [query, setQuery] = useState({
-    search: "",
-    status: "",
-    department: "",
-    page: 1,
-  });
-  const [data, setData] = useState({
-    problems: [],
-    page: 1,
-    pages: 1,
-    total: 0,
-  });
-  const [loading, setLoading] = useState(false);
+  const [problems, setProblems] = useState([]);
+  const token = localStorage.getItem("token");
 
-  const fetchData = async () => {
+  const fetchProblems = async () => {
     try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      if (query.search) params.set("search", query.search);
-      if (query.status) params.set("status", query.status);
-      if (query.department) params.set("department", query.department);
-      params.set("page", String(query.page));
-      params.set("limit", "10");
-      const res = await authFetch(`/problems?${params.toString()}`);
-      setData(res);
+      const res = await axios.get("/api/v1/problems", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.data.success) setProblems(res.data.problems);
     } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setLoading(false);
+      console.error("Fetch problems error:", err);
     }
   };
 
   useEffect(() => {
-    fetchData();
-  }, [query.page]); // fetch again when page changes
+    fetchProblems();
+  }, []);
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    setQuery((q) => ({ ...q, page: 1 }));
-    fetchData();
-  };
-
-  const updateStatus = async (id, status) => {
+  const handleStatusChange = async (id, status) => {
     try {
-      await authFetch(`/problems/${id}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
-      toast.success("Status updated");
-      fetchData();
+      const res = await axios.patch(
+        `/api/v1/problems/${id}/status`,
+        { status },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.data.success) {
+        alert("✅ Status updated successfully!");
+        fetchProblems();
+      } else alert("⚠️ Failed to update status");
     } catch (err) {
-      toast.error(err.message);
+      console.error("Update error:", err);
+      alert("❌ Error updating problem status");
     }
   };
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-semibold mb-4">Manage Problems</h1>
-
-      <form
-        onSubmit={handleSearch}
-        className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4"
-      >
-        <input
-          placeholder="Search title/description"
-          className="border rounded-xl p-3"
-          value={query.search}
-          onChange={(e) => setQuery({ ...query, search: e.target.value })}
-        />
-        <select
-          className="border rounded-xl p-3"
-          value={query.status}
-          onChange={(e) => setQuery({ ...query, status: e.target.value })}
-        >
-          <option value="">All Status</option>
-          {STATUS.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <input
-          placeholder="Department filter (optional)"
-          className="border rounded-xl p-3"
-          value={query.department}
-          onChange={(e) => setQuery({ ...query, department: e.target.value })}
-        />
-        <button className="bg-blue-600 text-white rounded-xl px-4 py-2 hover:opacity-90">
-          Filter
-        </button>
-      </form>
-
-      {loading ? (
-        <p>Loading...</p>
-      ) : (
-        <div className="grid gap-3">
-          {data.problems.map((p) => (
-            <div key={p._id} className="border rounded-2xl p-4">
-              <div className="flex flex-wrap justify-between gap-2">
+    <DashboardLayout title="Manage Reported Problems">
+      <div className="max-w-6xl mx-auto space-y-6">
+        <h2 className="text-xl font-semibold text-blue-700">
+          All Reported Problems
+        </h2>
+        {problems.length === 0 ? (
+          <p className="text-gray-500">No problems found.</p>
+        ) : (
+          <div className="space-y-3">
+            {problems.map((p) => (
+              <motion.div
+                key={p._id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="border rounded-lg p-4 bg-white shadow flex justify-between items-center"
+              >
                 <div>
-                  <h2 className="font-semibold">{p.title}</h2>
-                  <p className="text-sm text-gray-600">
-                    {p.category} • {p.department} • by {p.submittedBy?.name} (
-                    {p.submittedBy?.role})
+                  <h3 className="font-semibold text-gray-800">{p.title}</h3>
+                  <p className="text-sm text-gray-600">{p.description}</p>
+                  <p className="text-xs text-gray-400">
+                    Category: {p.category}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    Reported by: {p.postedBy?.name || "Unknown"}
                   </p>
                 </div>
-                <div className="flex gap-2">
-                  <select
-                    value={p.status}
-                    onChange={(e) => updateStatus(p._id, e.target.value)}
-                    className="border rounded-xl p-2"
+                <div className="flex flex-col gap-2 items-end">
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs ${
+                      p.status === "Completed"
+                        ? "bg-green-100 text-green-700"
+                        : p.status === "In Progress"
+                        ? "bg-yellow-100 text-yellow-700"
+                        : "bg-red-100 text-red-700"
+                    }`}
                   >
-                    {STATUS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <p className="mt-2 text-gray-800 whitespace-pre-wrap">
-                {p.description}
-              </p>
-              {p.comments?.length ? (
-                <div className="mt-2 bg-gray-50 rounded-xl p-2">
-                  {p.comments.map((c, idx) => (
-                    <div key={idx} className="text-sm text-gray-700">
-                      <span className="font-medium">{c.by?.name}</span>:{" "}
-                      {c.text}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      )}
+                    {p.status}
+                  </span>
 
-      <div className="flex items-center gap-3 mt-4">
-        <button
-          disabled={query.page <= 1}
-          onClick={() => setQuery((q) => ({ ...q, page: q.page - 1 }))}
-          className="border rounded-xl px-3 py-1 disabled:opacity-50"
-        >
-          Prev
-        </button>
-        <span className="text-sm">
-          Page {data.page} / {data.pages} • {data.total} results
-        </span>
-        <button
-          disabled={data.page >= data.pages}
-          onClick={() => setQuery((q) => ({ ...q, page: q.page + 1 }))}
-          className="border rounded-xl px-3 py-1 disabled:opacity-50"
-        >
-          Next
-        </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleStatusChange(p._id, "In Progress")}
+                      className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-xs"
+                    >
+                      In Progress
+                    </button>
+                    <button
+                      onClick={() => handleStatusChange(p._id, "Completed")}
+                      className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs"
+                    >
+                      Completed
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
       </div>
-    </div>
+    </DashboardLayout>
   );
 }

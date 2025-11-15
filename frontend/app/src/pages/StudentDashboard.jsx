@@ -1,170 +1,309 @@
-import React, { useState } from "react";
-import {
-  LayoutDashboard,
-  PackageSearch,
-  Clock,
-  Wrench,
-  Users,
-  LogOut,
-  Menu,
-  X,
-  Plus,
-} from "lucide-react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import axios from "../api/axiosConfig";
+import DashboardLayout from "../components/DashboardLayout";
+import { motion, AnimatePresence } from "framer-motion";
+import { Users, ArrowRight } from "lucide-react";
+import { authFetch } from "../utils/api";
 
-import LostItems from "./Student/LostItems";
-import FoundItems from "./Student/FoundItems";
-
-export default function StudentDashboard() {
-  const [activeTab, setActiveTab] = useState("found"); // default
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [search, setSearch] = useState("");
+const StudentDashboard = () => {
   const navigate = useNavigate();
+  const [problems, setProblems] = useState([]);
+  const [lostFound, setLostFound] = useState([]);
+  const [queueTickets, setQueueTickets] = useState([]);
+  const [availableFaculty, setAvailableFaculty] = useState([]);
+  const [activeTab, setActiveTab] = useState("active");
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [showModal, setShowModal] = useState(false);
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case "found":
-        return <FoundItems search={search} />;
-      case "lost":
-        return <LostItems search={search} />;
-      case "dashboard":
-        return (
-          <div className="p-8 text-gray-700">
-            <h2 className="text-3xl font-semibold mb-3">Welcome 👋</h2>
-            <p className="text-gray-600">
-              Manage all your campus services easily from your personalized
-              dashboard.
-            </p>
-          </div>
-        );
-      case "queue":
-        return (
-          <h2 className="text-2xl font-semibold text-gray-700">
-            Queue Management — coming soon 🕒
-          </h2>
-        );
-      case "problem":
-        return (
-          <h2 className="text-2xl font-semibold text-gray-700">
-            Problem Reporting — coming soon 🛠️
-          </h2>
-        );
-      case "faculty":
-        return (
-          <h2 className="text-2xl font-semibold text-gray-700">
-            Faculty Availability — coming soon 👩‍🏫
-          </h2>
-        );
-      default:
-        return null;
-    }
+  const token = localStorage.getItem("token");
+  const user = JSON.parse(localStorage.getItem("user"));
+
+  // ✅ Fetch all data
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const headers = { Authorization: `Bearer ${token}` };
+        const [pRes, lRes, qRes, facultyRes] = await Promise.all([
+          axios.get("/api/v1/problems/my", { headers }),
+          axios.get("/api/v1/lostfound", { headers }),
+          axios.get("/api/v1/queue/my", { headers }),
+          authFetch("/faculty/status?status=Available").catch(() => ({ statuses: [] })),
+        ]);
+
+        setProblems(pRes.data.problems || []);
+        setLostFound(lRes.data.items || []);
+        setQueueTickets(qRes.data.tickets || []);
+        setAvailableFaculty(facultyRes?.statuses || []);
+      } catch (err) {
+        console.error("Dashboard fetch error:", err);
+      }
+    };
+
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, [token]);
+
+  // ✅ Filters
+  const activeProblems = problems.filter((p) => p.status !== "Resolved");
+  const historyProblems = problems.filter((p) => p.status === "Resolved");
+
+  const activeLostFound = lostFound.filter(
+    (i) => !["verified", "returned", "matched"].includes(i.status)
+  );
+  const historyLostFound = lostFound.filter((i) =>
+    ["verified", "returned", "matched"].includes(i.status)
+  );
+
+  const activeQueue = queueTickets.filter(
+    (q) => !["completed", "cancelled"].includes(q.status)
+  );
+  const historyQueue = queueTickets.filter((q) =>
+    ["completed", "cancelled"].includes(q.status)
+  );
+
+  // ✅ Modal handler
+  const openModal = (item) => {
+    setSelectedItem(item);
+    setShowModal(true);
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate("/login");
+  const closeModal = () => {
+    setSelectedItem(null);
+    setShowModal(false);
   };
-
-  const navItems = [
-    {
-      id: "dashboard",
-      label: "Dashboard",
-      icon: <LayoutDashboard size={18} />,
-    },
-    { id: "found", label: "Found Items", icon: <PackageSearch size={18} /> },
-    { id: "lost", label: "Lost Items", icon: <PackageSearch size={18} /> },
-    { id: "queue", label: "Queue Management", icon: <Clock size={18} /> },
-    { id: "problem", label: "Problem Reporting", icon: <Wrench size={18} /> },
-    { id: "faculty", label: "Faculty Availability", icon: <Users size={18} /> },
-  ];
-
-  const showAddButton = activeTab === "found" || activeTab === "lost";
 
   return (
-    <div className="relative min-h-screen flex flex-col bg-gradient-to-b from-white via-blue-50 to-blue-100 font-[Inter]">
-      {/* Top Navbar */}
-      <header className="flex items-center justify-between p-4 bg-white shadow-sm border-b sticky top-0 z-40">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="p-2 rounded-md hover:bg-gray-100 transition"
-          >
-            <Menu size={22} />
-          </button>
-          <h1 className="text-2xl font-bold text-[#0A66C2]">CampusConnect</h1>
-        </div>
-        <p className="text-gray-600 text-sm">Student Dashboard</p>
-      </header>
-
-      {/* Sidebar Overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-40"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar Drawer */}
-      <aside
-        className={`fixed top-0 left-0 h-full w-64 bg-white shadow-2xl transform transition-transform duration-300 z-50 flex flex-col justify-between ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <div className="flex flex-col h-full overflow-y-auto">
-          <div className="flex items-center justify-between p-5 border-b">
-            <h1 className="text-xl font-extrabold text-[#0A66C2]">
-              CampusConnect
-            </h1>
-            <button onClick={() => setSidebarOpen(false)}>
-              <X size={20} />
-            </button>
+    <DashboardLayout title="Student Dashboard">
+      <div className="p-6 space-y-8">
+        {/* ===== Profile Card ===== */}
+        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-3xl shadow-2xl p-6 flex flex-wrap md:flex-nowrap items-center justify-between">
+          <div className="space-y-1">
+            <h2 className="text-2xl font-bold mb-1">{user.name}</h2>
+            <p className="text-white/90 text-sm">USN: {user.usn || "N/A"}</p>
+            <p className="text-white/90 text-sm">
+              Branch: {user.department || "N/A"}
+            </p>
+            <p className="text-white/90 text-sm">
+              Year: {user.year ? `${user.year} Year` : "N/A"}
+            </p>
           </div>
-
-          <nav className="mt-4 space-y-1 flex-1 px-2">
-            {navItems.map((item) => (
-              <button
-                key={item.id}
-                className={`flex items-center w-full text-left px-4 py-3 rounded-lg transition-all duration-200 ${
-                  activeTab === item.id
-                    ? "bg-[#E8F2FD] text-[#0A66C2] font-semibold shadow-sm"
-                    : "text-gray-700 hover:bg-gray-100"
-                }`}
-                onClick={() => {
-                  setActiveTab(item.id);
-                  setSidebarOpen(false);
-                }}
-              >
-                <span className="mr-3">{item.icon}</span>
-                {item.label}
-              </button>
-            ))}
-          </nav>
+          <img
+            src={
+              user.photo
+                ? `http://localhost:8080${user.photo}`
+                : "https://i.pravatar.cc/100"
+            }
+            alt="Profile"
+            className="w-24 h-24 mt-4 md:mt-0 rounded-full border-4 border-white object-cover"
+          />
         </div>
 
-        <div className="p-5 border-t">
-          <button
-            onClick={handleLogout}
-            className="flex items-center justify-center gap-2 w-full bg-gradient-to-r from-red-500 to-red-600 text-white font-semibold py-2 rounded-lg shadow-sm hover:shadow-md hover:scale-[1.02] transition"
+        {/* ===== Available Faculty Quick View ===== */}
+        {availableFaculty.length > 0 && (
+          <motion.div
+            className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-3xl shadow-lg p-6"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
           >
-            <LogOut size={16} /> Logout
-          </button>
-        </div>
-      </aside>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Users size={32} />
+                <div>
+                  <h3 className="text-xl font-bold">
+                    {availableFaculty.length} Faculty Available Now
+                  </h3>
+                  <p className="text-white/90 text-sm">
+                    Click to view all faculty and their availability
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => navigate("/student/availability")}
+                className="bg-white text-emerald-600 px-6 py-3 rounded-xl font-semibold hover:bg-emerald-50 transition flex items-center gap-2"
+              >
+                View All Faculty
+                <ArrowRight size={20} />
+              </button>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {availableFaculty.slice(0, 5).map((item) => (
+                <div
+                  key={item.faculty?._id}
+                  className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-lg text-sm font-medium"
+                >
+                  {item.faculty?.name || "Unknown"}
+                </div>
+              ))}
+              {availableFaculty.length > 5 && (
+                <div className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-lg text-sm font-medium">
+                  +{availableFaculty.length - 5} more
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
 
-      {/* Main Content + single Add button (no duplicates) */}
-      <main className="flex-1 overflow-y-auto p-6 sm:p-10">
-        <div className="relative">
-          {showAddButton && (
+        {/* ===== Tabs ===== */}
+        <div className="flex justify-center mb-4">
+          {["active", "history"].map((tab, index) => (
             <button
-              onClick={() => navigate("/student/add-found")}
-              className="absolute -top-2 right-0 bg-[#0A66C2] text-white flex items-center gap-2 px-4 py-2 rounded-lg font-medium shadow-md hover:shadow-lg hover:scale-[1.03] transition"
+              key={`tab-${index}`}
+              onClick={() => setActiveTab(tab)}
+              className={`px-6 py-2 rounded-full mx-2 ${
+                activeTab === tab
+                  ? "bg-indigo-600 text-white"
+                  : "bg-white text-indigo-600 border border-indigo-300"
+              }`}
             >
-              <Plus size={18} /> Add Item
+              {tab === "active" ? "🟡 Active" : "📜 History"}
             </button>
-          )}
-          {renderContent()}
+          ))}
         </div>
-      </main>
-    </div>
+
+        {/* ===== Main Content Grid ===== */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {activeTab === "active" ? (
+            <>
+              {/* ===== Problems ===== */}
+              {activeProblems.map((p, i) => (
+                <div
+                  key={`problem-${p._id || i}`}
+                  className="bg-white p-5 rounded-2xl shadow hover:shadow-lg transition cursor-pointer"
+                  onClick={() => openModal(p)}
+                >
+                  <h2 className="font-semibold text-indigo-700">{p.title}</h2>
+                  <p className="text-sm text-gray-500">{p.category}</p>
+                  <p className="mt-2 text-gray-700 line-clamp-3">
+                    {p.description}
+                  </p>
+                  <span className="text-xs mt-2 inline-block bg-yellow-200 text-yellow-800 px-2 py-1 rounded">
+                    {p.status}
+                  </span>
+                </div>
+              ))}
+
+              {/* ===== Lost & Found ===== */}
+              {activeLostFound.map((i, idx) => (
+                <div
+                  key={`lost-${i._id || idx}`}
+                  className="bg-white p-5 rounded-2xl shadow hover:shadow-lg transition cursor-pointer"
+                  onClick={() => openModal(i)}
+                >
+                  <h2 className="font-semibold text-teal-700">{i.title}</h2>
+                  <p className="text-sm text-gray-500">
+                    {i.type?.toUpperCase()}
+                  </p>
+                  <p className="mt-2 text-gray-700 line-clamp-3">
+                    {i.description}
+                  </p>
+                  <span className="text-xs mt-2 inline-block bg-orange-200 text-orange-800 px-2 py-1 rounded">
+                    {i.status}
+                  </span>
+                </div>
+              ))}
+
+              {/* ===== Queue ===== */}
+              {activeQueue.map((q, qIndex) => (
+                <div
+                  key={`queue-${q._id || qIndex}`}
+                  className="bg-white p-5 rounded-2xl shadow hover:shadow-lg transition cursor-pointer"
+                  onClick={() => openModal(q)}
+                >
+                  <h2 className="font-semibold text-pink-700">
+                    {q.service} Queue
+                  </h2>
+                  <p className="text-sm text-gray-500">
+                    Position #{q.position}
+                  </p>
+                  <p className="mt-2 text-gray-700 line-clamp-3">
+                    {q.description}
+                  </p>
+                  <span className="text-xs mt-2 inline-block bg-blue-200 text-blue-800 px-2 py-1 rounded">
+                    {q.status}
+                  </span>
+                </div>
+              ))}
+            </>
+          ) : (
+            <>
+              {/* ===== History Section ===== */}
+              {[...historyProblems, ...historyLostFound, ...historyQueue].map(
+                (h, index) => (
+                  <div
+                    key={`history-${
+                      h._id || h.id || h.title || h.service || index
+                    }`}
+                    className="bg-white p-5 rounded-2xl shadow border-l-4 border-green-500 hover:shadow-lg transition cursor-pointer"
+                    onClick={() => openModal(h)}
+                  >
+                    <h2 className="font-semibold text-green-700">
+                      {h.title || h.service}
+                    </h2>
+                    <p className="text-sm text-gray-500">
+                      {h.category || h.type || "Queue"}
+                    </p>
+                    <p className="mt-2 text-gray-700 line-clamp-3">
+                      {h.description || "Completed successfully."}
+                    </p>
+                    <span className="text-xs mt-2 inline-block bg-green-200 text-green-800 px-2 py-1 rounded">
+                      {h.status}
+                    </span>
+                  </div>
+                )
+              )}
+            </>
+          )}
+        </div>
+
+        {/* ===== Modal for Item Details ===== */}
+        <AnimatePresence>
+          {showModal && selectedItem && (
+            <motion.div
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <motion.div
+                className="bg-white p-6 rounded-3xl shadow-2xl w-[90%] max-w-md relative"
+                initial={{ scale: 0.9, y: -10 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: -10 }}
+              >
+                <button
+                  onClick={closeModal}
+                  className="absolute top-3 right-3 text-gray-600 hover:text-red-500"
+                >
+                  ✖
+                </button>
+                <h2 className="text-2xl font-semibold text-indigo-700 mb-3">
+                  {selectedItem.title || selectedItem.service}
+                </h2>
+                <p className="text-gray-600 mb-2">
+                  <strong>Category:</strong>{" "}
+                  {selectedItem.category || selectedItem.type || "N/A"}
+                </p>
+                <p className="text-gray-600 mb-2">
+                  <strong>Status:</strong> {selectedItem.status}
+                </p>
+                <p className="text-gray-700 mb-4">
+                  {selectedItem.description || "No description provided."}
+                </p>
+                <button
+                  onClick={closeModal}
+                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700"
+                >
+                  Close
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </DashboardLayout>
   );
-}
+};
+
+export default StudentDashboard;

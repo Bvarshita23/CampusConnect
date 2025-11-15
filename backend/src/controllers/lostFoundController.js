@@ -1,258 +1,295 @@
 import LostFound from "../models/LostFound.js";
 import { sendEmail } from "../utils/emailHelper.js";
 import stringSimilarity from "string-similarity";
+import { createNotification } from "./notificationController.js";
 
 /**
- * 🧩 Create new Lost/Found item
+ * ✅ Create Lost/Found item + AI Smart Match
  */
 export const createItem = async (req, res) => {
   try {
-    const {
-      type,
-      title,
-      description,
-      location,
-      uniqueQuestion,
-      options,
-      correctAnswer,
-    } = req.body;
+    const { type, title, description, location } = req.body;
+    const user = req.user;
+
+    if (!user) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Unauthorized user" });
+    }
+
+    if (!title || !description || !location || !type) {
+      return res
+        .status(400)
+        .json({ success: false, message: "All fields are required" });
+    }
 
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
-    let normalizedOptions = options;
-    try {
-      if (typeof options === "string") normalizedOptions = JSON.parse(options);
-    } catch {
-      normalizedOptions = [];
-    }
-
-    const item = await LostFound.create({
-      type,
+    // Create new item
+    const newItem = await LostFound.create({
       title,
       description,
       location,
+      type,
       imageUrl,
-      postedBy: req.user._id,
-      uniqueQuestion,
-      options: Array.isArray(normalizedOptions) ? normalizedOptions : [],
-      correctAnswer,
-      status: "available",
+      postedBy: user._id,
+      status: "open",
     });
 
-    // 🔍 Auto-match (lost ↔ found)
+    // 🔍 Find opposite type items (AI Matching)
     const oppositeType = type === "found" ? "lost" : "found";
-    const candidates = await LostFound.find({ type: oppositeType }).populate(
-      "postedBy",
-      "name email"
-    );
+    const allOppositeItems = await LostFound.find({
+      type: oppositeType,
+      status: "open",
+    }).populate("postedBy", "name email");
 
     let bestMatch = null;
-    let bestScore = 0;
+    let highestScore = 0;
 
-    for (const c of candidates) {
-      const score =
-        (stringSimilarity.compareTwoStrings(
-          (title || "").toLowerCase(),
-          (c.title || "").toLowerCase()
-        ) +
-          stringSimilarity.compareTwoStrings(
-            (description || "").toLowerCase(),
-            (c.description || "").toLowerCase()
-          )) /
-        2;
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = c;
+    for (const item of allOppositeItems) {
+      const titleScore = stringSimilarity.compareTwoStrings(
+        title.toLowerCase(),
+        item.title.toLowerCase()
+      );
+      const descScore = stringSimilarity.compareTwoStrings(
+        description.toLowerCase(),
+        item.description.toLowerCase()
+      );
+      const locScore = stringSimilarity.compareTwoStrings(
+        location.toLowerCase(),
+        item.location.toLowerCase()
+      );
+
+      const finalScore = 0.5 * titleScore + 0.3 * descScore + 0.2 * locScore;
+
+      if (finalScore > highestScore) {
+        highestScore = finalScore;
+        bestMatch = item;
       }
     }
 
-    // 🎯 Notify on strong match
-    if (bestMatch && bestScore >= 0.6) {
-      const finder = type === "found" ? req.user : bestMatch.postedBy;
-      const owner = type === "found" ? bestMatch.postedBy : req.user;
-
-      try {
-        await sendEmail(
-          owner.email,
-          "🎯 Match Found",
-          `We found a possible match for "${title}". Check Campus Connect.`
-        );
-        await sendEmail(
-          finder.email,
-          "🎯 Match Found",
-          `Someone might be the owner of "${title}". Check Campus Connect.`
-        );
-      } catch (e) {
-        console.log("⚠️ Email failed (ignored):", e.message);
-      }
-
-      item.status = "matched";
+    // ✅ If similarity > 0.6, mark both as matched and notify
+    if (bestMatch && highestScore >= 0.6) {
+      newItem.status = "matched";
       bestMatch.status = "matched";
-      await item.save();
+      await newItem.save();
       await bestMatch.save();
+
+      const finder = type === "found" ? user : bestMatch.postedBy;
+      const owner = type === "found" ? bestMatch.postedBy : user;
+
+      // Email both parties
+      await Promise.all([
+        sendEmail(
+          owner.email,
+          "🎯 Possible Match Found for Your Item",
+          `Hi ${owner.name}, we found a potential match for your "${title}". Check Campus Connect Lost & Found for details.`
+        ),
+        sendEmail(
+          finder.email,
+          "🎯 Potential Match Found",
+          `Hi ${finder.name}, someone reported a similar ${oppositeType} item: "${title}". You might want to verify it.`
+        ),
+      ]);
+
+      // Create in-app notifications
+      await Promise.all([
+        createNotification(
+          owner._id,
+          `📦 Potential match found for "${title}". Check Lost & Found.`
+        ),
+        createNotification(
+          finder._id,
+          `📦 Your item "${title}" matched with another user's report.`
+        ),
+      ]);
     }
 
-    res.status(201).json({ success: true, item, message: "Item created" });
-  } catch (e) {
-    console.error("❌ Error creating item:", e);
-    res.status(500).json({ success: false, message: "Create failed" });
+    return res.status(201).json({
+      success: true,
+      message: bestMatch
+        ? "Item added successfully — potential match found!"
+        : "Item added successfully — no matches found yet.",
+      item: newItem,
+      match: bestMatch || null,
+    });
+  } catch (error) {
+    console.error("❌ createItem error:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Server error while creating item" });
   }
 };
 
 /**
- * 🧾 Fetch items (with optional ?type=found|lost and ?search=)
- * Excludes claimed/returned items
+ * ✅ Fetch all items
  */
 export const getItems = async (req, res) => {
   try {
-    const { type, search } = req.query;
-    const q = {
-      status: { $nin: ["claimed", "returned"] },
-    };
-    if (type) q.type = type;
-    if (search) {
-      q.$or = [
-        { title: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
-        { location: { $regex: search, $options: "i" } },
-      ];
-    }
-
-    const items = await LostFound.find(q)
-      .populate("postedBy", "_id") // hide identity
+    const items = await LostFound.find()
+      .populate("postedBy", "name email")
       .sort({ createdAt: -1 });
-
     res.json({ success: true, items });
-  } catch (e) {
-    console.error("❌ Fetch failed:", e);
-    res.status(500).json({ success: false, message: "Fetch failed" });
+  } catch (error) {
+    console.error("getItems error:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch items" });
   }
 };
 
 /**
- * 🧩 Verify ownership (for FOUND items)
+ * ✅ Verify Claim
+ */
+/**
+ * ✅ Verify Claim with Security Question + Weekly Lockout
  */
 export const verifyClaim = async (req, res) => {
   try {
     const { id } = req.params;
     const { selectedAnswer } = req.body;
+    const user = req.user;
 
-    if (!selectedAnswer || !selectedAnswer.trim()) {
-      return res.status(400).json({
+    const item = await LostFound.findById(id)
+      .select("+correctAnswer uniqueQuestion postedBy")
+      .populate("postedBy", "name email");
+
+    if (!item) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Item not found" });
+    }
+
+    // 🔒 Prevent repeat claim within 7 days
+    const lockKey = `claim_lock_${user._id}`;
+    if (!global.lockedUsers) global.lockedUsers = new Map();
+
+    const lockedUntil = global.lockedUsers.get(lockKey);
+    if (lockedUntil && Date.now() < lockedUntil) {
+      const remaining = Math.ceil(
+        (lockedUntil - Date.now()) / (1000 * 60 * 60 * 24)
+      );
+      return res.status(403).json({
         success: false,
-        message: "Please select an answer.",
+        message: `You can retry claiming after ${remaining} day(s).`,
       });
     }
 
-    const item = await LostFound.findById(id)
-      .select("+correctAnswer")
-      .populate("postedBy", "name email");
+    const userAns = (selectedAnswer || "").trim().toLowerCase();
+    const correctAns = (item.correctAnswer || "").trim().toLowerCase();
+
+    // ❌ Wrong answer — apply 1-week lockout
+    if (userAns !== correctAns) {
+      global.lockedUsers.set(lockKey, Date.now() + 7 * 24 * 60 * 60 * 1000);
+      return res.status(400).json({
+        success: false,
+        message: "Incorrect answer. You are locked from claiming for 7 days.",
+      });
+    }
+
+    // ✅ Correct answer: mark verified + email both parties
+    item.status = "verified";
+    if (!Array.isArray(item.historyOf)) item.historyOf = [];
+    item.historyOf.push(user._id);
+    await item.save();
+
+    // Notify both users
+    try {
+      await Promise.all([
+        sendEmail(
+          item.postedBy.email,
+          "✅ Your found item has been claimed!",
+          `Hi ${item.postedBy.name}, ${user.name} correctly answered your verification question for "${item.title}".`
+        ),
+        sendEmail(
+          user.email,
+          "🎉 Claim verified!",
+          `Hi ${user.name}, your claim for "${item.title}" has been verified successfully.`
+        ),
+      ]);
+    } catch (e) {
+      console.warn("Email send failed:", e.message);
+    }
+
+    return res.json({
+      success: true,
+      message: "✅ Claim verified successfully!",
+    });
+  } catch (e) {
+    console.error("verifyClaim error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/**
+ * ✅ Mark Returned
+ */
+export const markReturned = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const item = await LostFound.findById(id);
 
     if (!item)
       return res
         .status(404)
         .json({ success: false, message: "Item not found" });
 
-    if (!item.uniqueQuestion || !item.correctAnswer)
-      return res.status(400).json({
-        success: false,
-        message: "This item does not require verification.",
-      });
+    if (String(item.postedBy) !== String(req.user._id))
+      return res
+        .status(403)
+        .json({ success: false, message: "Not authorized" });
 
-    // ⛔ Check if this user already failed before
-    if (item.failedAttempts?.includes(req.user._id)) {
-      return res.status(403).json({
-        success: false,
-        message: "You already attempted verification. Access denied.",
-      });
-    }
-
-    const userAnswer = selectedAnswer.trim().toLowerCase();
-    const correctAnswer = item.correctAnswer.trim().toLowerCase();
-    const isCorrect = userAnswer === correctAnswer;
-
-    if (!isCorrect) {
-      item.status = "rejected";
-      item.failedAttempts = [...(item.failedAttempts || []), req.user._id];
-      await item.save();
-      return res.status(400).json({
-        success: false,
-        message: "❌ Incorrect answer. Claim rejected permanently.",
-      });
-    }
-
-    // ✅ Verified successfully
-    item.status = "claimed";
-    item.claimedBy = req.user._id;
-    item.claimedAt = new Date();
+    item.status = "returned";
     await item.save();
 
-    const finder = item.postedBy;
-    const owner = req.user;
-
-    // Send notification emails
-    try {
-      if (finder?.email && owner?.email) {
-        await sendEmail(
-          owner.email,
-          "🎉 Ownership Verified",
-          `Hi ${owner.name}, your claim for "${item.title}" was verified successfully and moved to your history.`
-        );
-        await sendEmail(
-          finder.email,
-          "🎉 Item Claimed Successfully",
-          `Hi ${finder.name}, your found item "${item.title}" has been successfully claimed and moved to your history.`
-        );
-      }
-    } catch (e) {
-      console.log("⚠️ Email send failed (ignored):", e.message);
-    }
-
-    return res.json({
-      success: true,
-      message: "✅ Ownership verified. Item moved to history.",
-    });
-  } catch (err) {
-    console.error("❌ Error verifying claim:", err);
-    res.status(500).json({ success: false, message: "Server error" });
+    res.json({ success: true, message: "Item marked as returned" });
+  } catch (error) {
+    console.error("markReturned error:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to mark item returned" });
   }
 };
 
 /**
- * 🗑️ Delete (only by owner)
+ * ✅ Delete Item
  */
 export const deleteItem = async (req, res) => {
   try {
     const { id } = req.params;
-    const doc = await LostFound.findById(id);
-    if (!doc)
-      return res.status(404).json({ success: false, message: "Not found" });
-    if (String(doc.postedBy) !== String(req.user._id))
-      return res.status(403).json({ success: false, message: "Not your item" });
+    const item = await LostFound.findById(id);
 
-    await doc.deleteOne();
-    res.json({ success: true, message: "Deleted" });
-  } catch (e) {
-    console.error("❌ Delete failed:", e);
-    res.status(500).json({ success: false, message: "Delete failed" });
+    if (!item)
+      return res
+        .status(404)
+        .json({ success: false, message: "Item not found" });
+
+    if (String(item.postedBy) !== String(req.user._id))
+      return res
+        .status(403)
+        .json({ success: false, message: "Not authorized" });
+
+    await item.deleteOne();
+    res.json({ success: true, message: "Item deleted successfully" });
+  } catch (error) {
+    console.error("deleteItem error:", error);
+    res.status(500).json({ success: false, message: "Failed to delete item" });
   }
 };
 
 /**
- * 🕓 Get user history (claimed & returned)
+ * ✅ Get User History
  */
 export const getHistory = async (req, res) => {
   try {
+    const userId = req.user._id;
     const items = await LostFound.find({
-      $or: [{ postedBy: req.user._id }, { claimedBy: req.user._id }],
-      status: { $in: ["claimed", "returned"] },
-    })
-      .populate("postedBy claimedBy", "name email")
-      .sort({ claimedAt: -1 });
-
+      $or: [{ postedBy: userId }, { historyOf: userId }],
+      status: { $in: ["verified", "matched", "returned"] },
+    }).sort({ updatedAt: -1 });
     res.json({ success: true, items });
-  } catch (e) {
-    console.error("❌ History fetch failed:", e);
-    res.status(500).json({ success: false, message: "History fetch failed" });
+  } catch (error) {
+    console.error("getHistory error:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch history" });
   }
 };

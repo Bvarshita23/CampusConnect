@@ -1,118 +1,116 @@
-import React, { useState, useEffect } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import React, { useState } from "react";
+import axios from "axios";
+import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
-import toast, { Toaster } from "react-hot-toast";
-import "./LoginPage.css";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState("student");
-  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
 
-  // 🚀 If already logged in, redirect immediately by role
-  useEffect(() => {
-    const user = JSON.parse(localStorage.getItem("user"));
-    if (user?.role) {
-      const userRole = user.role.toLowerCase();
-      if (userRole === "admin") navigate("/admin/dashboard", { replace: true });
-      else if (userRole === "faculty")
-        navigate("/faculty/dashboard", { replace: true });
-      else if (userRole === "student")
-        navigate("/student/dashboard", { replace: true });
-    }
-  }, [navigate]);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  // 🔑 Handle login + role redirect
   const handleLogin = async (e) => {
     e.preventDefault();
+    setLoading(true);
 
     try {
-      const res = await fetch("http://localhost:8080/api/v1/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, role }),
+      const res = await axios.post("/api/v1/auth/login", {
+        email,
+        password,
       });
 
-      const data = await res.json();
+      const { user, token } = res.data;
 
-      if (!res.ok) {
-        toast.error(data.message || "Invalid credentials");
-        return;
-      }
+      // Save user + token
+      localStorage.setItem("user", JSON.stringify(user));
+      localStorage.setItem("token", token);
 
-      // ✅ Store session
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
       toast.success("Login successful!");
 
-      // ✅ Redirect by role
-      const userRole = data.user.role?.toLowerCase();
-      if (userRole === "admin") navigate("/admin/dashboard");
-      else if (userRole === "faculty") navigate("/faculty/dashboard");
-      else if (userRole === "student") navigate("/student/dashboard");
-      else navigate("/");
+      // Redirect based on ACTUAL role from backend
+      switch (user.role) {
+        case "superadmin":
+          navigate("/superadmin/dashboard");
+          break;
+
+        case "department_admin":
+          navigate("/department-admin/dashboard");
+          break;
+
+        case "functional_admin":
+          navigate("/functional-admin/dashboard");
+          break;
+
+        case "admin":
+          navigate("/admin/dashboard");
+          break;
+
+        case "faculty":
+          navigate("/faculty/dashboard");
+          break;
+
+        case "student":
+          navigate("/student/dashboard");
+          break;
+
+        default:
+          navigate("/dashboard");
+      }
     } catch (err) {
-      console.error("❌ Login failed:", err);
-      toast.error("Server error. Please try again later.");
+      console.error(err);
+      toast.error("Invalid email or password");
     }
+
+    setLoading(false);
   };
 
   return (
-    <div className="login-container">
-      <Toaster position="top-center" />
-      <div className="login-card">
-        <h2 className="login-title">Campus Connect Login</h2>
+    <div className="w-full h-screen flex justify-center items-center bg-blue-50">
+      <form
+        onSubmit={handleLogin}
+        className="bg-white shadow-xl rounded-xl p-8 w-full max-w-md"
+      >
+        <h2 className="text-3xl font-bold text-center text-blue-700 mb-6">
+          Campus Connect Login
+        </h2>
 
-        <form onSubmit={handleLogin} className="login-form">
-          <label>Email</label>
-          <input
-            type="email"
-            placeholder="Enter your email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
+        {/* Email */}
+        <input
+          type="email"
+          placeholder="Email"
+          className="w-full border border-gray-300 rounded-md p-3 mb-4"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
 
-          <label>Role</label>
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            className="role-select"
-          >
-            <option value="student">Student</option>
-            <option value="faculty">Faculty</option>
-            <option value="admin">Admin</option>
-          </select>
+        {/* Password */}
+        <input
+          type="password"
+          placeholder="Password"
+          className="w-full border border-gray-300 rounded-md p-3 mb-4"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
 
-          <label>Password</label>
-          <div className="password-wrapper">
-            <input
-              type={showPassword ? "text" : "password"}
-              placeholder="Enter your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-            <button
-              type="button"
-              className="eye-icon"
-              onClick={() => setShowPassword(!showPassword)}
-            >
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
-          </div>
+        {/* Login Button */}
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold"
+        >
+          {loading ? "Logging in..." : "Login"}
+        </button>
 
-          <div className="forgot-password">
-            <a href="#">Forgot Password?</a>
-          </div>
-
-          <button type="submit" className="login-btn">
-            Login
-          </button>
-        </form>
-      </div>
+        <p
+          className="text-center text-sm text-blue-600 mt-4 cursor-pointer"
+          onClick={() => navigate("/forgot-password")}
+        >
+          Forgot Password?
+        </p>
+      </form>
     </div>
   );
 }
