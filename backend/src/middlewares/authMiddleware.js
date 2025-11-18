@@ -5,31 +5,20 @@ import User from "../models/User.js";
 /**
  * ✅ Verify JWT token and attach user to request
  */
-export const verifyToken = async (req, res, next) => {
+export const verifyToken = (req, res, next) => {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) {
+    return res.status(401).json({ success: false, message: "No token" });
+  }
+
+  const token = header.split(" ")[1];
+
   try {
-    const header = req.headers.authorization || "";
-    const token = header.startsWith("Bearer ") ? header.split(" ")[1] : null;
-
-    // ⚙️ TEMP FIX: allow requests without token (for dev testing)
-    if (!token) {
-      console.warn("⚠️ No token provided — bypassing auth in development");
-      return next();
-    }
-
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select("-password");
-
-    if (!user) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Invalid or expired token" });
-    }
-
-    req.user = user;
+    req.user = decoded;
     next();
-  } catch (error) {
-    console.error("Auth error:", error.message);
-    res.status(401).json({ success: false, message: "Unauthorized" });
+  } catch {
+    return res.status(401).json({ success: false, message: "Invalid token" });
   }
 };
 

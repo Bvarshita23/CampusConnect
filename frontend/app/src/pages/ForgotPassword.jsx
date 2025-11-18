@@ -1,59 +1,115 @@
 import React, { useState } from "react";
 import axios from "axios";
-import toast from "react-hot-toast";
+import { Link } from "react-router-dom";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [emailValid, setEmailValid] = useState(null);
+  const [message, setMessage] = useState("");
+
+  const checkEmailExists = async (email) => {
+    if (!email) return;
+
+    setChecking(true);
+    try {
+      const res = await axios.post("/api/v1/auth/check-email", { email });
+      setEmailValid(res.data.exists);
+    } catch {
+      setEmailValid(false);
+    }
+    setChecking(false);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setMessage("");
 
-    try {
-      await axios.post("/api/v1/auth/forgot-password", { email });
-
-      toast.success("Password reset link sent to your email!");
-      setEmail("");
-    } catch (err) {
-      toast.error(err.response?.data?.message || "Failed to send reset link");
+    if (!emailValid) {
+      setMessage("❌ This email is not registered.");
+      return;
     }
 
-    setLoading(false);
+    try {
+      const res = await axios.post("/api/v1/auth/forgot-password", { email });
+      setMessage("✔ Reset link sent to your email.");
+    } catch (err) {
+      setMessage("❌ Failed to send reset link.");
+    }
   };
 
   return (
-    <div className="flex justify-center items-center h-screen bg-blue-50">
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white shadow-xl p-8 rounded-xl w-full max-w-md"
-      >
-        <h1 className="text-2xl font-bold text-blue-700 mb-3">
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
+      <div className="bg-white shadow-xl rounded-2xl p-8 max-w-md w-full">
+        <h2 className="text-3xl font-bold text-center text-sky-700 mb-6">
           Forgot Password
-        </h1>
+        </h2>
 
-        <p className="text-gray-600 text-sm mb-4">
-          Enter your email to receive a password reset link.
-        </p>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Email Input */}
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Enter your email
+            </label>
+            <input
+              type="email"
+              className={`w-full p-3 rounded-lg border ${
+                emailValid === false
+                  ? "border-red-500"
+                  : emailValid === true
+                  ? "border-green-500"
+                  : "border-gray-300"
+              }`}
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setEmailValid(null);
+              }}
+              onBlur={() => checkEmailExists(email)}
+              required
+            />
 
-        {/* Email Input */}
-        <input
-          type="email"
-          placeholder="Enter your registered email"
-          className="w-full border border-gray-300 rounded-lg p-3 mb-4"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
+            {/* Checking message */}
+            {checking && (
+              <p className="text-sm text-gray-500 mt-1">Checking...</p>
+            )}
 
-        {/* Submit Button */}
-        <button
-          className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition"
-          disabled={loading}
-        >
-          {loading ? "Sending..." : "Send Reset Link"}
-        </button>
-      </form>
+            {/* Error */}
+            {emailValid === false && (
+              <p className="text-sm text-red-500 mt-1">Email not registered.</p>
+            )}
+            {emailValid === true && (
+              <p className="text-sm text-green-600 mt-1">Email found ✓</p>
+            )}
+          </div>
+
+          {/* Message */}
+          {message && (
+            <p
+              className={`text-center font-medium ${
+                message.startsWith("✔") ? "text-green-600" : "text-red-600"
+              }`}
+            >
+              {message}
+            </p>
+          )}
+
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={checking}
+            className="w-full bg-sky-600 text-white py-3 rounded-xl font-semibold hover:bg-sky-700 transition"
+          >
+            Send Reset Link
+          </button>
+
+          <div className="text-center mt-4">
+            <Link to="/login" className="text-sky-600 hover:underline">
+              ← Back to Login
+            </Link>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

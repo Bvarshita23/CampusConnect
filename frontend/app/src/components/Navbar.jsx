@@ -1,49 +1,69 @@
+// frontend/app/src/components/Navbar.jsx
 import React from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { LogOut } from "lucide-react";
 
-export default function Navbar({ user, onLogout }) {
-  const getRoleLabel = () => {
-    switch (user.role) {
-      case "student":
-        return "Student";
-      case "faculty":
-        return "Faculty";
-      case "admin":
-        return "Admin";
-      case "department_admin":
-        return "Department Admin";
-      case "functional_admin":
-        return "Functional Admin";
-      case "superadmin":
-        return "Super Admin";
-      default:
-        return "User";
+export default function Navbar() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const user = JSON.parse(localStorage.getItem("user"));
+
+  const handleDashboardClick = () => {
+    if (!user) {
+      navigate("/login");
+    } else if (user.role === "student") {
+      navigate("/student/dashboard");
+    } else if (user.role === "faculty") {
+      navigate("/faculty/dashboard");
+    } else if (user.role === "admin") {
+      navigate("/admin/dashboard");
+    } else if (user.role === "superadmin") {
+      navigate("/superadmin/dashboard");
+    } else if (user.role === "department_admin") {
+      navigate("/department-admin/dashboard");
     }
   };
 
+  const handleLogout = () => {
+    localStorage.clear();
+    navigate("/login");
+  };
+
   return (
-    <nav className="w-full bg-[#0A66C2] text-white flex justify-between items-center px-6 py-3 shadow-md">
-      <h1 className="text-lg sm:text-xl font-bold tracking-wide">
-        Campus Connect
-      </h1>
-
-      <div className="flex items-center space-x-4">
-        <span className="hidden sm:block bg-white text-[#0A66C2] font-semibold px-3 py-1 rounded-full text-sm">
-          {getRoleLabel()}
-        </span>
-
-        <img
-          src={user.photo || "/default-avatar.png"}
-          alt="Profile"
-          className="w-10 h-10 rounded-full border-2 border-white object-cover"
-        />
-
-        <button
-          onClick={onLogout}
-          className="bg-white text-[#0A66C2] font-semibold px-3 py-1 rounded-md hover:bg-blue-50 transition"
+    <header className="w-full bg-white border-b border-slate-200 shadow-sm">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        {/* Left: Brand */}
+        <div
+          onClick={handleDashboardClick}
+          className="flex items-center gap-3 cursor-pointer"
         >
-          Logout
-        </button>
+          <div className="h-9 w-9 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-bold text-lg">
+            CC
+          </div>
+          <div className="flex flex-col">
+            <span className="text-base font-semibold text-slate-900">
+              CampusConnect
+            </span>
+            <span className="text-xs text-slate-500">
+              {user?.role ? user.role.toUpperCase() : "PORTAL"}
+            </span>
+          </div>
+        </div>
+
+        {/* Middle Placeholder */}
+        <div className="hidden sm:flex flex-1 justify-center"></div>
+
+        {/* Right: Only Logout */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleLogout}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500 text-white hover:bg-red-600 transition shadow-sm"
+          >
+            <LogOut size={16} />
+            <span>Logout</span>
+          </button>
+        </div>
       </div>
-    </nav>
+    </header>
   );
 }

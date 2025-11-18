@@ -3,17 +3,18 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
 const ROLES = [
-  "superadmin", // full power
-  "department_admin", // manages users in a department (CSE, AIML, etc.)
-  "functional_admin", // manages problem categories (Water, Electricity, etc.)
+  "superadmin",
+  "department_admin",
+  "functional_admin",
   "faculty",
   "student",
-  "admin", // (legacy) keep to avoid breaking old code
+  "admin",
 ];
 
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
+
     email: {
       type: String,
       required: true,
@@ -21,22 +22,45 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
-    password: { type: String, required: true },
-    role: { type: String, enum: ROLES, default: "student", index: true },
 
-    // For students & faculty
-    department: { type: String, trim: true }, // e.g., CSE, AIML, ECE OR functional category for functional_admin
-    year: { type: String, trim: true }, // students only
-    usn: { type: String, unique: true, sparse: true, trim: true }, // unique but optional
+    password: {
+      type: String,
+      required: true,
+      minlength: 6,
+    },
 
-    // For faculty only
-    designation: { type: String, trim: true }, // e.g., Professor, Assistant Professor, etc.
-    experience: { type: String, trim: true }, // e.g., "32 years", "11.5 years", etc.
+    role: {
+      type: String,
+      enum: ROLES,
+      default: "student",
+    },
 
-    // File path served by /uploads
-    photo: { type: String, default: null },
+    // 🎓 Common fields
+    department: { type: String, trim: true }, // CSE, AIML, etc.
+    year: { type: Number }, // for students
+    usn: { type: String, trim: true, unique: false }, // we handle duplicates in code
+
+    // ⭐ Faculty extras
+    experienceYears: { type: Number, default: 0 }, // years of experience
+    subjects: { type: String, default: "" }, // "DBMS, OS, ML"
+    achievements: { type: String, default: "" }, // text blob
+
+    // 🔐 Reset password (optional)
     resetPasswordToken: { type: String },
     resetPasswordExpire: { type: Date },
+
+    // 📷 File path served via Express static
+    photo: { type: String, default: null },
+
+    // 📅 Faculty availability
+    status: {
+      type: String,
+      enum: ["available", "unavailable", "busy"],
+      default: "unavailable",
+    },
+    availableFrom: String,
+    availableUntil: String,
+    lastStatusUpdate: Date,
   },
   { timestamps: true }
 );

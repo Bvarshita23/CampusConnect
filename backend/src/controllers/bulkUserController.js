@@ -49,16 +49,21 @@ const getFirstSheetRows = (zip) => {
 // 🧠 Helper: find image buffer by file name inside images/ folder
 const findImageEntry = (zip, fileName) => {
   if (!fileName) return null;
+
   const normalized = fileName.trim().toLowerCase();
   if (!normalized) return null;
 
-  const entry = zip
-    .getEntries()
-    .find(
-      (e) =>
-        e.entryName.toLowerCase().startsWith("images/") &&
-        e.entryName.toLowerCase().endsWith("/" + normalized)
+  const entry = zip.getEntries().find((e) => {
+    const name = e.entryName.toLowerCase();
+    return (
+      name.endsWith(normalized) &&
+      (name.includes("images/") ||
+        name.includes("image/") ||
+        name.includes("img/") ||
+        name.includes("photos/") ||
+        name.includes("photo/"))
     );
+  });
 
   return entry || null;
 };
@@ -83,18 +88,17 @@ const processBulkUsers = async ({
     const rows = getFirstSheetRows(zip);
 
     // target upload dir for photos
-    const photoDir = path.join(
-      __root,
-      "backend",
-      "src",
-      "uploads",
-      "profiles",
-      role === "student"
-        ? "students"
-        : role === "faculty"
-        ? "faculty"
-        : "admins"
-    );
+    // role-based photo directory
+    let photoDir = "";
+
+    if (role === "student") {
+      photoDir = path.join(__root, "uploads", "profiles", "students");
+    } else if (role === "faculty") {
+      photoDir = path.join(__root, "uploads", "profiles", "faculty");
+    } else if (role === "admin") {
+      photoDir = path.join(__root, "uploads", "profiles", "admins");
+    }
+
     ensureDir(photoDir);
 
     for (let index = 0; index < rows.length; index++) {
@@ -189,6 +193,8 @@ const handleStudentRow = async ({
       const ext = path.extname(photo) || ".jpg";
       const fileName = `student-${usn}${ext}`;
       const fullPath = path.join(photoDir, fileName);
+      ensureDir(photoDir);
+
       fs.writeFileSync(fullPath, entry.getData());
       photoPath = `/uploads/profiles/students/${fileName}`;
     } else {

@@ -18,6 +18,7 @@ export const createProblem = async (req, res) => {
       description,
       category,
       postedBy: req.user._id,
+      department: req.user.department || null, // store creator's dept
       status: "Pending",
     });
 
@@ -40,8 +41,9 @@ export const createProblem = async (req, res) => {
 export const getAllProblems = async (req, res) => {
   try {
     const problems = await Problem.find()
-      .populate("postedBy", "name email role")
+      .populate("postedBy", "name email role department")
       .sort({ createdAt: -1 });
+
     res.json({ success: true, problems });
   } catch (err) {
     console.error("getAllProblems error:", err);
@@ -69,7 +71,7 @@ export const getMyProblems = async (req, res) => {
 };
 
 /**
- * ✅ Update problem status (admin/superadmin)
+ * ✅ Update problem status (admin/superadmin/department_admin/functional_admin)
  */
 export const updateProblemStatus = async (req, res) => {
   try {
@@ -95,5 +97,81 @@ export const updateProblemStatus = async (req, res) => {
     res
       .status(500)
       .json({ success: false, message: "Failed to update status" });
+  }
+};
+
+/**
+ * ✅ Delete problem with role-based permissions
+ * - superadmin: can delete any problem
+ * - functional_admin: can delete any problem
+ * - department_admin: can delete only problems from their department
+ * - normal user: can delete only own problem
+ */
+export const deleteProblem = async (req, res) => {
+  try {
+    const problem = await Problem.findById(req.params.id).populate(
+      "postedBy",
+      "department"
+    );
+
+    if (!problem) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Problem not found" });
+    }
+
+    const role = req.user.role;
+    const userDept = req.user.department;
+
+    // Superadmin => delete any
+    if (role === "superadmin") {
+      await problem.deleteOne();
+      return res.json({
+        success: true,
+        message: "Problem deleted successfully",
+      });
+    }
+
+    // Functional admin => delete any
+    if (role === "functional_admin") {
+      await problem.deleteOne();
+      return res.json({
+        success: true,
+        message: "Problem deleted successfully",
+      });
+    }
+
+    // Department admin => only same department
+    if (role === "department_admin") {
+      if (problem.postedBy?.department !== userDept) {
+        return res.status(403).json({
+          success: false,
+          message: "You can only delete problems from your department",
+        });
+      }
+      await problem.deleteOne();
+      return res.json({
+        success: true,
+        message: "Problem deleted successfully",
+      });
+    }
+
+    // Normal user => only delete own problem
+    if (String(problem.postedBy?._id) !== String(req.user._id)) {
+      return res
+        .status(403)
+        .json({
+          success: false,
+          message: "Not authorized to delete this problem",
+        });
+    }
+
+    await problem.deleteOne();
+    res.json({ success: true, message: "Problem deleted successfully" });
+  } catch (err) {
+    console.error("deleteProblem error:", err);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to delete problem" });
   }
 };

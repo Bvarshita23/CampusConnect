@@ -1,6 +1,6 @@
-// backend/src/routes/authRoutes.js
 import express from "express";
-import upload from "../middlewares/uploadMiddleware.js";
+import multer from "multer";
+
 import {
   register,
   loginUser,
@@ -8,25 +8,45 @@ import {
   getAllUsers,
   deleteUser,
   updateUser,
-} from "../controllers/authController.js";
-import { verifyToken, requireRoles } from "../middlewares/authMiddleware.js";
-import {
   forgotPassword,
   resetPassword,
 } from "../controllers/authController.js";
+
+import {
+  bulkUploadStudents,
+  bulkUploadFaculty,
+  bulkUploadAdmins,
+} from "../controllers/bulkUserController.js";
+
+import { checkEmail } from "../controllers/authExtraController.js";
+import { verifyToken, requireRoles } from "../middlewares/authMiddleware.js";
+import upload from "../middlewares/uploadMiddleware.js";
+
 const router = express.Router();
 
-// Public login
+// -----------------------------------------
+// CHECK EMAIL EXISTS (Login validation)
+// -----------------------------------------
+router.post("/check-email", checkEmail);
+
+// -----------------------------------------
+// LOGIN
+// -----------------------------------------
 router.post("/login", loginUser);
 
-// Public registration for student/faculty
+// -----------------------------------------
+// REGISTER USER (with photo upload)
+// -----------------------------------------
 router.post("/register", upload.single("photo"), register);
 
-// Current user profile
+// -----------------------------------------
+// GET PROFILE
+// -----------------------------------------
 router.get("/profile", verifyToken, getProfile);
-router.post("/forgot-password", forgotPassword);
-router.post("/reset-password/:token", resetPassword);
-// Admin-only area
+
+// -----------------------------------------
+// GET ALL USERS (Admin only)
+// -----------------------------------------
 router.get(
   "/all-users",
   verifyToken,
@@ -34,19 +54,59 @@ router.get(
   getAllUsers
 );
 
+// -----------------------------------------
+// UPDATE USER (Admin only)
+// -----------------------------------------
 router.put(
   "/update/:id",
   verifyToken,
   requireRoles("superadmin", "admin", "department_admin"),
-  upload.single("photo"),
   updateUser
 );
 
+// -----------------------------------------
+// DELETE USER (Admin only)
+// -----------------------------------------
 router.delete(
   "/delete/:id",
   verifyToken,
   requireRoles("superadmin", "admin", "department_admin"),
   deleteUser
+);
+
+// -----------------------------------------
+// PASSWORD RESET
+// -----------------------------------------
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password/:token", resetPassword);
+
+// -----------------------------------------
+// BULK UPLOAD (Students / Faculty / Admins)
+// -----------------------------------------
+const zipUpload = multer({ dest: "uploads/tmp" });
+
+router.post(
+  "/bulk-upload/students",
+  verifyToken,
+  requireRoles("superadmin", "department_admin"),
+  zipUpload.single("zipFile"),
+  bulkUploadStudents
+);
+
+router.post(
+  "/bulk-upload/faculty",
+  verifyToken,
+  requireRoles("superadmin", "department_admin"),
+  zipUpload.single("zipFile"),
+  bulkUploadFaculty
+);
+
+router.post(
+  "/bulk-upload/admins",
+  verifyToken,
+  requireRoles("superadmin"),
+  zipUpload.single("zipFile"),
+  bulkUploadAdmins
 );
 
 export default router;

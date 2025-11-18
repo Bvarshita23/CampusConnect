@@ -1,5 +1,6 @@
+// frontend/app/src/components/Sidebar.jsx
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   PackageSearch,
@@ -9,11 +10,16 @@ import {
   Users,
   History,
   LogOut,
+  UserPlus,
+  UserCheck,
+  Plus,
+  FolderPlus,
   Upload,
 } from "lucide-react";
 
 export default function Sidebar({ onLogout }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const user = JSON.parse(localStorage.getItem("user"));
 
   const handleDashboardClick = () => {
@@ -38,248 +44,374 @@ export default function Sidebar({ onLogout }) {
     navigate("/login");
   };
 
+  const isActive = (path) => location.pathname.startsWith(path);
+
+  const baseItemClasses =
+    "flex items-center gap-3 px-4 py-2.5 rounded-xl cursor-pointer transition-all text-sm font-medium";
+  const activeClasses = "bg-blue-600 text-white shadow-md";
+  const inactiveClasses = "text-slate-600 hover:bg-blue-50 hover:text-blue-700";
+
   return (
-    <div className="w-64 bg-white shadow-md h-screen p-6 flex flex-col justify-between">
+    <div className="h-screen w-64 bg-white border-r border-slate-200 flex flex-col justify-between shadow-sm">
+      {/* Top: Logo + Menu */}
       <div>
-        <h2 className="text-2xl font-bold mb-8 text-blue-600">CampusConnect</h2>
-        <ul className="space-y-4 text-gray-700">
-          <li
+        {/* Brand */}
+        <div className="px-6 pt-6 pb-4 flex items-center gap-3">
+          <div className="h-10 w-10 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-bold text-lg">
+            CC
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 leading-tight">
+              CampusConnect
+            </h2>
+            <p className="text-xs text-slate-500">
+              {user?.role ? user.role.toUpperCase() : "PORTAL"}
+            </p>
+          </div>
+        </div>
+
+        <div className="px-4 mt-4">
+          {/* Common: Dashboard */}
+          <div
             onClick={handleDashboardClick}
-            className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+            className={`${baseItemClasses} ${
+              isActive("/student/dashboard") ||
+              isActive("/faculty/dashboard") ||
+              isActive("/admin/dashboard") ||
+              isActive("/superadmin/dashboard") ||
+              isActive("/department-admin/dashboard")
+                ? activeClasses
+                : inactiveClasses
+            }`}
           >
-            <LayoutDashboard size={20} />
+            <LayoutDashboard size={18} />
             <span>Dashboard</span>
-          </li>
+          </div>
 
-          {/* ===============================
-              STUDENT LINKS
-          ================================= */}
+          {/* STUDENT LINKS */}
           {user?.role === "student" && (
-            <>
-              <li
+            <div className="mt-3 space-y-1.5">
+              <div
                 onClick={() => navigate("/student/found-items")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/student/found-items")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
               >
-                <PackageSearch size={20} />
+                <PackageSearch size={18} />
                 <span>Found Items</span>
-              </li>
-
-              <li
+              </div>
+              <div
                 onClick={() => navigate("/student/lostfound")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/student/lostfound")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
               >
-                <PackagePlus size={20} />
+                <PackagePlus size={18} />
                 <span>Lost Items</span>
-              </li>
-
-              <li
+              </div>
+              <div
                 onClick={() => navigate("/student/queue")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/student/queue") ? activeClasses : inactiveClasses
+                }`}
               >
-                <Clock size={20} />
+                <Clock size={18} />
                 <span>Queue Management</span>
-              </li>
-
-              <li
+              </div>
+              <div
                 onClick={() => navigate("/student/report-problem")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/student/report-problem")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
               >
-                <AlertTriangle size={20} />
+                <AlertTriangle size={18} />
                 <span>Problem Reporting</span>
-              </li>
-
-              <li
+              </div>
+              <div
                 onClick={() => navigate("/student/availability")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/student/availability")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
               >
-                <Users size={20} />
+                <Users size={18} />
                 <span>Faculty Availability</span>
-              </li>
-
-              <li
+              </div>
+              <div
                 onClick={() => navigate("/student/history")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/student/history") ? activeClasses : inactiveClasses
+                }`}
               >
-                <History size={20} />
+                <History size={18} />
                 <span>History</span>
-              </li>
-            </>
+              </div>
+            </div>
           )}
 
-          {/* ===============================
-              FACULTY LINKS
-          ================================= */}
+          {/* FACULTY LINKS */}
           {user?.role === "faculty" && (
-            <>
-              <li
+            <div className="mt-3 space-y-1.5">
+              <div
                 onClick={() => navigate("/faculty/dashboard")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/faculty/dashboard")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
               >
-                <LayoutDashboard size={20} />
+                <LayoutDashboard size={18} />
                 <span>Faculty Dashboard</span>
-              </li>
-
-              <li
+              </div>
+              <div
                 onClick={() => navigate("/faculty/availability")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/faculty/availability")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
               >
-                <Users size={20} />
+                <Users size={18} />
                 <span>Manage Availability</span>
-              </li>
-
-              <li
+              </div>
+              <div
                 onClick={() => navigate("/faculty/queue")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/faculty/queue") ? activeClasses : inactiveClasses
+                }`}
               >
-                <Clock size={20} />
+                <Clock size={18} />
                 <span>Queue Management</span>
-              </li>
-
-              <li
+              </div>
+              <div
                 onClick={() => navigate("/faculty/problems")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/faculty/problems")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
               >
-                <AlertTriangle size={20} />
+                <AlertTriangle size={18} />
                 <span>Problem Reports</span>
-              </li>
-            </>
+              </div>
+            </div>
           )}
 
-          {/* ===============================
-              NORMAL ADMIN LINKS
-          ================================= */}
+          {/* ADMIN LINKS */}
           {user?.role === "admin" && (
-            <>
-              <li
+            <div className="mt-3 space-y-1.5">
+              <div
                 onClick={() => navigate("/admin/dashboard")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/admin/dashboard") ? activeClasses : inactiveClasses
+                }`}
               >
-                <LayoutDashboard size={20} />
+                <LayoutDashboard size={18} />
                 <span>Admin Dashboard</span>
-              </li>
-
-              <li
+              </div>
+              <div
                 onClick={() => navigate("/admin/problems")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/admin/problems") ? activeClasses : inactiveClasses
+                }`}
               >
-                <AlertTriangle size={20} />
+                <AlertTriangle size={18} />
                 <span>Manage Problems</span>
-              </li>
-
-              <li
+              </div>
+              <div
                 onClick={() => navigate("/admin/found-items")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/admin/found-items")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
               >
-                <PackageSearch size={20} />
+                <PackageSearch size={18} />
                 <span>Found Items</span>
-              </li>
-
-              <li
+              </div>
+              <div
                 onClick={() => navigate("/admin/lostfound")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/admin/lostfound") ? activeClasses : inactiveClasses
+                }`}
               >
-                <PackagePlus size={20} />
+                <PackagePlus size={18} />
                 <span>Lost Items</span>
-              </li>
-            </>
+              </div>
+            </div>
           )}
 
-          {/* ===============================
-              DEPARTMENT ADMIN LINKS
-          ================================= */}
-          {user?.role === "department_admin" && (
-            <>
-              <li
-                onClick={() => navigate("/department-admin/dashboard")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
-              >
-                <LayoutDashboard size={20} />
-                <span>Department Admin Dashboard</span>
-              </li>
-
-              <li
-                onClick={() => navigate("/bulk-upload/students")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
-              >
-                <Upload size={20} />
-                <span>Bulk Upload Students</span>
-              </li>
-
-              <li
-                onClick={() => navigate("/bulk-upload/faculty")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
-              >
-                <Upload size={20} />
-                <span>Bulk Upload Faculty</span>
-              </li>
-
-              {/* 👇 NEW */}
-              <li
-                onClick={() => navigate("/department-admin/students")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
-              >
-                <Users size={20} />
-                <span>Students List</span>
-              </li>
-              <li
-                onClick={() => navigate("/department-admin/faculty")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
-              >
-                <Users size={20} />
-                <span>Faculty List</span>
-              </li>
-            </>
-          )}
-
-          {/* ===============================
-              SUPERADMIN LINKS
-          ================================= */}
+          {/* SUPERADMIN LINKS */}
           {user?.role === "superadmin" && (
-            <>
-              <li
+            <div className="mt-3 space-y-1.5">
+              {/* Dashboard */}
+              <div
                 onClick={() => navigate("/superadmin/dashboard")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+                className={`${baseItemClasses} ${
+                  isActive("/superadmin/dashboard")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
               >
-                <LayoutDashboard size={20} />
-                <span>Super Admin Dashboard</span>
-              </li>
+                <LayoutDashboard size={18} />
+                <span>Super Admin</span>
+              </div>
 
-              <li
-                onClick={() => navigate("/bulk-upload/students")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+              {/* Add Single Student */}
+              <div
+                onClick={() => navigate("/superadmin/register-student")}
+                className={`${baseItemClasses} ${
+                  isActive("/superadmin/register-student")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
               >
-                <Upload size={20} />
+                <UserPlus size={18} />
+                <span>Add Student</span>
+              </div>
+
+              {/* Add Single Faculty */}
+              <div
+                onClick={() => navigate("/superadmin/register-faculty")}
+                className={`${baseItemClasses} ${
+                  isActive("/superadmin/register-faculty")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
+              >
+                <UserCheck size={18} />
+                <span>Add Faculty</span>
+              </div>
+
+              {/* Bulk Upload Students */}
+              <div
+                onClick={() => navigate("/superadmin/bulk-upload/students")}
+                className={`${baseItemClasses} ${
+                  isActive("/superadmin/bulk-upload/students")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
+              >
+                <Upload size={18} />
                 <span>Bulk Upload Students</span>
-              </li>
+              </div>
 
-              <li
-                onClick={() => navigate("/bulk-upload/faculty")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+              {/* Bulk Upload Faculty */}
+              <div
+                onClick={() => navigate("/superadmin/bulk-upload/faculty")}
+                className={`${baseItemClasses} ${
+                  isActive("/superadmin/bulk-upload/faculty")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
               >
-                <Upload size={20} />
+                <Upload size={18} />
                 <span>Bulk Upload Faculty</span>
-              </li>
+              </div>
 
-              <li
-                onClick={() => navigate("/bulk-upload/admins")}
-                className="flex items-center space-x-3 hover:text-blue-600 cursor-pointer"
+              {/* Register Functional Admin */}
+              <div
+                onClick={() =>
+                  navigate("/superadmin/register-functional-admin")
+                }
+                className={`${baseItemClasses} ${
+                  isActive("/superadmin/register-functional-admin")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
               >
-                <Upload size={20} />
-                <span>Bulk Upload Admins</span>
-              </li>
-            </>
+                <Plus size={18} />
+                <span>Functional Admin</span>
+              </div>
+
+              {/* Register Department Admin */}
+              <div
+                onClick={() =>
+                  navigate("/superadmin/register-department-admin")
+                }
+                className={`${baseItemClasses} ${
+                  isActive("/superadmin/register-department-admin")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
+              >
+                <Plus size={18} />
+                <span>Department Admin</span>
+              </div>
+
+              {/* Manage All Admins */}
+              <div
+                onClick={() => navigate("/superadmin/manage-admins")}
+                className={`${baseItemClasses} ${
+                  isActive("/superadmin/manage-admins")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
+              >
+                <Users size={18} />
+                <span>Manage Admins</span>
+              </div>
+
+              {/* Faculty Availability */}
+              <div
+                onClick={() => navigate("/superadmin/availability")}
+                className={`${baseItemClasses} ${
+                  isActive("/superadmin/availability")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
+              >
+                <Users size={18} />
+                <span>Faculty Availability</span>
+              </div>
+
+              {/* Lost & Found */}
+              <div
+                onClick={() => navigate("/superadmin/lostfound")}
+                className={`${baseItemClasses} ${
+                  isActive("/superadmin/lostfound")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
+              >
+                <PackageSearch size={18} />
+                <span>Lost & Found</span>
+              </div>
+
+              {/* Problem Reporting */}
+              <div
+                onClick={() => navigate("/superadmin/report-problem")}
+                className={`${baseItemClasses} ${
+                  isActive("/superadmin/report-problem")
+                    ? activeClasses
+                    : inactiveClasses
+                }`}
+              >
+                <AlertTriangle size={18} />
+                <span>Problem Reporting</span>
+              </div>
+            </div>
           )}
-        </ul>
+        </div>
       </div>
 
-      {/* 🚪 LOGOUT BUTTON */}
-      <button
-        onClick={handleLogout}
-        className="flex items-center justify-center space-x-2 bg-red-500 text-white py-2 rounded-md hover:bg-red-600"
-      >
-        <LogOut size={18} />
-        <span>Logout</span>
-      </button>
+      {/* Bottom: Logout */}
+      <div className="px-4 pb-6">
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center justify-center gap-2 bg-red-500 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-red-600 transition shadow-sm"
+        >
+          <LogOut size={18} />
+          <span>Logout</span>
+        </button>
+      </div>
     </div>
   );
 }

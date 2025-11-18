@@ -1,10 +1,19 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "../api/axiosConfig";
 import DashboardLayout from "../components/DashboardLayout";
 import { motion, AnimatePresence } from "framer-motion";
 import { Users, ArrowRight } from "lucide-react";
-import { authFetch } from "../utils/api";
+import api from "../utils/api"; // ✅ FIXED — this is the ONLY import you need
+
+// ⭐ Initial Avatar Component
+const InitialAvatar = ({ name }) => {
+  const letter = name?.trim()?.charAt(0)?.toUpperCase() || "?";
+  return (
+    <div className="w-28 h-28 rounded-full bg-white text-indigo-700 flex items-center justify-center font-bold text-4xl shadow-md border-4 border-white">
+      {letter}
+    </div>
+  );
+};
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
@@ -19,22 +28,23 @@ const StudentDashboard = () => {
   const token = localStorage.getItem("token");
   const user = JSON.parse(localStorage.getItem("user"));
 
-  // ✅ Fetch all data
+  // FETCH DATA
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const headers = { Authorization: `Bearer ${token}` };
         const [pRes, lRes, qRes, facultyRes] = await Promise.all([
-          axios.get("/api/v1/problems/my", { headers }),
-          axios.get("/api/v1/lostfound", { headers }),
-          axios.get("/api/v1/queue/my", { headers }),
-          authFetch("/faculty/status?status=Available").catch(() => ({ statuses: [] })),
+          api.get("/problems/my"),
+          api.get("/lostfound"),
+          api.get("/queue/my"),
+          api
+            .get("/faculty/status?status=Available")
+            .catch(() => ({ data: { statuses: [] } })),
         ]);
 
         setProblems(pRes.data.problems || []);
         setLostFound(lRes.data.items || []);
         setQueueTickets(qRes.data.tickets || []);
-        setAvailableFaculty(facultyRes?.statuses || []);
+        setAvailableFaculty(facultyRes.data.statuses || []);
       } catch (err) {
         console.error("Dashboard fetch error:", err);
       }
@@ -43,9 +53,9 @@ const StudentDashboard = () => {
     fetchData();
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
-  }, [token]);
+  }, []);
 
-  // ✅ Filters
+  // FILTERS
   const activeProblems = problems.filter((p) => p.status !== "Resolved");
   const historyProblems = problems.filter((p) => p.status === "Resolved");
 
@@ -63,98 +73,77 @@ const StudentDashboard = () => {
     ["completed", "cancelled"].includes(q.status)
   );
 
-  // ✅ Modal handler
   const openModal = (item) => {
     setSelectedItem(item);
     setShowModal(true);
   };
 
-  const closeModal = () => {
-    setSelectedItem(null);
-    setShowModal(false);
-  };
-
   return (
     <DashboardLayout title="Student Dashboard">
       <div className="p-6 space-y-8">
-        {/* ===== Profile Card ===== */}
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-3xl shadow-2xl p-6 flex flex-wrap md:flex-nowrap items-center justify-between">
-          <div className="space-y-1">
-            <h2 className="text-2xl font-bold mb-1">{user.name}</h2>
-            <p className="text-white/90 text-sm">USN: {user.usn || "N/A"}</p>
-            <p className="text-white/90 text-sm">
-              Branch: {user.department || "N/A"}
-            </p>
-            <p className="text-white/90 text-sm">
-              Year: {user.year ? `${user.year} Year` : "N/A"}
-            </p>
+        {/* ===== PROFILE ===== */}
+        <section className="bg-gradient-to-r from-sky-500 to-indigo-600 text-white rounded-3xl shadow-lg p-6 flex flex-wrap md:flex-nowrap items-center justify-between gap-6">
+          <div>
+            <h2 className="text-3xl font-bold">{user.name}</h2>
+            <p className="text-white/90 mt-1">USN: {user.usn}</p>
+            <p className="text-white/90">Department: {user.department}</p>
+            <p className="text-white/90">Year: {user.year}</p>
           </div>
-          <img
-            src={
-              user.photo
-                ? `http://localhost:8080${user.photo}`
-                : "https://i.pravatar.cc/100"
-            }
-            alt="Profile"
-            className="w-24 h-24 mt-4 md:mt-0 rounded-full border-4 border-white object-cover"
-          />
-        </div>
 
-        {/* ===== Available Faculty Quick View ===== */}
+          <InitialAvatar name={user.name} />
+        </section>
+
+        {/* ===== AVAILABLE FACULTY ===== */}
         {availableFaculty.length > 0 && (
           <motion.div
-            className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-3xl shadow-lg p-6"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
+            className="bg-white rounded-2xl shadow border border-emerald-200 p-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex justify-between items-center">
               <div className="flex items-center gap-3">
-                <Users size={32} />
+                <Users className="text-emerald-600" size={32} />
                 <div>
-                  <h3 className="text-xl font-bold">
-                    {availableFaculty.length} Faculty Available Now
+                  <h3 className="text-xl font-semibold text-emerald-700">
+                    {availableFaculty.length} Faculty Available
                   </h3>
-                  <p className="text-white/90 text-sm">
-                    Click to view all faculty and their availability
+                  <p className="text-gray-500 text-sm">
+                    Click to view full availability list.
                   </p>
                 </div>
               </div>
+
               <button
                 onClick={() => navigate("/student/availability")}
-                className="bg-white text-emerald-600 px-6 py-3 rounded-xl font-semibold hover:bg-emerald-50 transition flex items-center gap-2"
+                className="bg-emerald-600 text-white px-6 py-3 rounded-xl hover:bg-emerald-700 transition flex items-center gap-2"
               >
-                View All Faculty
-                <ArrowRight size={20} />
+                View All <ArrowRight size={18} />
               </button>
             </div>
+
             <div className="mt-4 flex flex-wrap gap-2">
-              {availableFaculty.slice(0, 5).map((item) => (
+              {availableFaculty.slice(0, 5).map((f, idx) => (
                 <div
-                  key={item.faculty?._id}
-                  className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-lg text-sm font-medium"
+                  key={idx}
+                  className="px-4 py-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200"
                 >
-                  {item.faculty?.name || "Unknown"}
+                  {f.faculty?.name}
                 </div>
               ))}
-              {availableFaculty.length > 5 && (
-                <div className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-lg text-sm font-medium">
-                  +{availableFaculty.length - 5} more
-                </div>
-              )}
             </div>
           </motion.div>
         )}
 
-        {/* ===== Tabs ===== */}
-        <div className="flex justify-center mb-4">
-          {["active", "history"].map((tab, index) => (
+        {/* ===== TABS ===== */}
+        <div className="flex justify-center gap-3">
+          {["active", "history"].map((tab) => (
             <button
-              key={`tab-${index}`}
+              key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-6 py-2 rounded-full mx-2 ${
+              className={`px-6 py-2 rounded-full font-semibold transition ${
                 activeTab === tab
                   ? "bg-indigo-600 text-white"
-                  : "bg-white text-indigo-600 border border-indigo-300"
+                  : "bg-white border border-indigo-300 text-indigo-600"
               }`}
             >
               {tab === "active" ? "🟡 Active" : "📜 History"}
@@ -162,102 +151,56 @@ const StudentDashboard = () => {
           ))}
         </div>
 
-        {/* ===== Main Content Grid ===== */}
+        {/* ===== LIST ITEMS ===== */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {activeTab === "active" ? (
-            <>
-              {/* ===== Problems ===== */}
-              {activeProblems.map((p, i) => (
-                <div
-                  key={`problem-${p._id || i}`}
-                  className="bg-white p-5 rounded-2xl shadow hover:shadow-lg transition cursor-pointer"
-                  onClick={() => openModal(p)}
-                >
-                  <h2 className="font-semibold text-indigo-700">{p.title}</h2>
-                  <p className="text-sm text-gray-500">{p.category}</p>
-                  <p className="mt-2 text-gray-700 line-clamp-3">
-                    {p.description}
-                  </p>
-                  <span className="text-xs mt-2 inline-block bg-yellow-200 text-yellow-800 px-2 py-1 rounded">
-                    {p.status}
-                  </span>
-                </div>
-              ))}
-
-              {/* ===== Lost & Found ===== */}
-              {activeLostFound.map((i, idx) => (
-                <div
-                  key={`lost-${i._id || idx}`}
-                  className="bg-white p-5 rounded-2xl shadow hover:shadow-lg transition cursor-pointer"
-                  onClick={() => openModal(i)}
-                >
-                  <h2 className="font-semibold text-teal-700">{i.title}</h2>
-                  <p className="text-sm text-gray-500">
-                    {i.type?.toUpperCase()}
-                  </p>
-                  <p className="mt-2 text-gray-700 line-clamp-3">
-                    {i.description}
-                  </p>
-                  <span className="text-xs mt-2 inline-block bg-orange-200 text-orange-800 px-2 py-1 rounded">
-                    {i.status}
-                  </span>
-                </div>
-              ))}
-
-              {/* ===== Queue ===== */}
-              {activeQueue.map((q, qIndex) => (
-                <div
-                  key={`queue-${q._id || qIndex}`}
-                  className="bg-white p-5 rounded-2xl shadow hover:shadow-lg transition cursor-pointer"
-                  onClick={() => openModal(q)}
-                >
-                  <h2 className="font-semibold text-pink-700">
-                    {q.service} Queue
-                  </h2>
-                  <p className="text-sm text-gray-500">
-                    Position #{q.position}
-                  </p>
-                  <p className="mt-2 text-gray-700 line-clamp-3">
-                    {q.description}
-                  </p>
-                  <span className="text-xs mt-2 inline-block bg-blue-200 text-blue-800 px-2 py-1 rounded">
-                    {q.status}
-                  </span>
-                </div>
-              ))}
-            </>
-          ) : (
-            <>
-              {/* ===== History Section ===== */}
-              {[...historyProblems, ...historyLostFound, ...historyQueue].map(
-                (h, index) => (
+          {activeTab === "active"
+            ? [...activeProblems, ...activeLostFound, ...activeQueue].map(
+                (item, i) => (
                   <div
-                    key={`history-${
-                      h._id || h.id || h.title || h.service || index
-                    }`}
-                    className="bg-white p-5 rounded-2xl shadow border-l-4 border-green-500 hover:shadow-lg transition cursor-pointer"
-                    onClick={() => openModal(h)}
+                    key={i}
+                    onClick={() => openModal(item)}
+                    className="bg-white p-5 rounded-2xl shadow hover:shadow-lg transition cursor-pointer border border-gray-100"
                   >
-                    <h2 className="font-semibold text-green-700">
-                      {h.title || h.service}
+                    <h2 className="text-indigo-700 font-semibold text-lg">
+                      {item.title || item.service}
                     </h2>
-                    <p className="text-sm text-gray-500">
-                      {h.category || h.type || "Queue"}
+                    <p className="text-gray-500 text-sm">
+                      {item.category || item.type || "Queue"}
                     </p>
                     <p className="mt-2 text-gray-700 line-clamp-3">
-                      {h.description || "Completed successfully."}
+                      {item.description}
                     </p>
-                    <span className="text-xs mt-2 inline-block bg-green-200 text-green-800 px-2 py-1 rounded">
-                      {h.status}
+                    <span className="inline-block mt-3 text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded">
+                      {item.status}
+                    </span>
+                  </div>
+                )
+              )
+            : [...historyProblems, ...historyLostFound, ...historyQueue].map(
+                (item, i) => (
+                  <div
+                    key={i}
+                    onClick={() => openModal(item)}
+                    className="bg-white p-5 rounded-2xl shadow border-l-4 border-green-500 hover:shadow-lg cursor-pointer"
+                  >
+                    <h2 className="text-green-700 font-semibold text-lg">
+                      {item.title || item.service}
+                    </h2>
+                    <p className="text-gray-500 text-sm">
+                      {item.category || item.type || "Queue"}
+                    </p>
+                    <p className="mt-2 text-gray-700 line-clamp-3">
+                      {item.description}
+                    </p>
+                    <span className="inline-block mt-3 text-xs bg-green-200 text-green-800 px-2 py-1 rounded">
+                      {item.status}
                     </span>
                   </div>
                 )
               )}
-            </>
-          )}
         </div>
 
-        {/* ===== Modal for Item Details ===== */}
+        {/* ===== MODAL ===== */}
         <AnimatePresence>
           {showModal && selectedItem && (
             <motion.div
@@ -268,32 +211,27 @@ const StudentDashboard = () => {
             >
               <motion.div
                 className="bg-white p-6 rounded-3xl shadow-2xl w-[90%] max-w-md relative"
-                initial={{ scale: 0.9, y: -10 }}
-                animate={{ scale: 1, y: 0 }}
-                exit={{ scale: 0.9, y: -10 }}
+                initial={{ scale: 0.9 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0.9 }}
               >
                 <button
-                  onClick={closeModal}
+                  onClick={() => setShowModal(false)}
                   className="absolute top-3 right-3 text-gray-600 hover:text-red-500"
                 >
                   ✖
                 </button>
-                <h2 className="text-2xl font-semibold text-indigo-700 mb-3">
+                <h2 className="text-2xl font-bold text-indigo-700">
                   {selectedItem.title || selectedItem.service}
                 </h2>
-                <p className="text-gray-600 mb-2">
-                  <strong>Category:</strong>{" "}
-                  {selectedItem.category || selectedItem.type || "N/A"}
-                </p>
-                <p className="text-gray-600 mb-2">
+                <p className="mt-2 text-gray-600">
                   <strong>Status:</strong> {selectedItem.status}
                 </p>
-                <p className="text-gray-700 mb-4">
-                  {selectedItem.description || "No description provided."}
-                </p>
+                <p className="mt-1 text-gray-700">{selectedItem.description}</p>
+
                 <button
-                  onClick={closeModal}
-                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700"
+                  onClick={() => setShowModal(false)}
+                  className="mt-5 bg-indigo-600 text-white px-4 py-2 rounded-lg w-full hover:bg-indigo-700"
                 >
                   Close
                 </button>

@@ -1,47 +1,28 @@
-// backend/src/middlewares/uploadMiddleware.js
 import multer from "multer";
-import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// FINAL UPLOAD DIRECTORY (always correct)
+const UPLOAD_DIR = path.join(
+  __dirname,
+  "..",
+  "..",
+  "public_uploads",
+  "profiles"
+);
 
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const rawRole = (req.body.role || "student").toLowerCase();
-    // students → profiles/students, faculty → profiles/faculty, admins keep plural 's'
-    const target =
-      rawRole === "faculty"
-        ? "faculty"
-        : rawRole === "student"
-        ? "students"
-        : rawRole + "s";
-
-    const uploadPath = path.join(
-      process.cwd(),
-      "backend",
-      "src",
-      "uploads",
-      "profiles",
-      target
-    );
-    if (!fs.existsSync(uploadPath))
-      fs.mkdirSync(uploadPath, { recursive: true });
-    cb(null, uploadPath);
+  destination: (req, file, cb) => {
+    cb(null, UPLOAD_DIR);
   },
-  filename: function (req, file, cb) {
-    const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
+  filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
-    cb(null, `photo-${unique}${ext}`);
+    cb(null, Date.now() + "-" + file.fieldname + ext);
   },
 });
 
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter: (req, file, cb) => {
-    const allowed = /jpeg|jpg|png/;
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (allowed.test(ext)) return cb(null, true);
-    cb(new Error("Only .jpeg, .jpg, .png files are allowed"));
-  },
-});
-
+const upload = multer({ storage });
 export default upload;

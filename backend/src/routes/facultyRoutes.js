@@ -1,20 +1,25 @@
 import express from "express";
-import { verifyToken } from "../middlewares/authMiddleware.js";
+import { verifyToken, requireRoles } from "../middlewares/authMiddleware.js";
 import {
-  updateFacultyStatus,
   getMyStatus,
-  getAllFacultyStatuses,
-} from "../controllers/facultyController.js";
+  updateStatus,
+  getAllStatuses,
+} from "../controllers/facultyStatusController.js";
 
 const router = express.Router();
 
-// ✅ Faculty updates their own status
-router.patch("/status/update", verifyToken, updateFacultyStatus);
-
-// ✅ Faculty gets their own status
+// View own status
 router.get("/status/me", verifyToken, getMyStatus);
 
-// ✅ Get all faculty statuses (for students/admin)
-router.get("/status", verifyToken, getAllFacultyStatuses);
+// Update own status
+router.put("/status/update", verifyToken, updateStatus);
+
+// Admin / Superadmin access
+router.get(
+  "/status/all",
+  verifyToken,
+  requireRoles("superadmin", "admin", "department_admin"),
+  getAllStatuses
+);
 
 export default router;
