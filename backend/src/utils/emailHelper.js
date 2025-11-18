@@ -2,7 +2,7 @@ import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 dotenv.config();
 
-export const sendEmail = async (to, subject, text, htmlContent) => {
+export const sendEmail = async (to, subject, html) => {
   try {
     const transporter = nodemailer.createTransport({
       service: "gmail",
@@ -12,17 +12,15 @@ export const sendEmail = async (to, subject, text, htmlContent) => {
       },
     });
 
-    const mailOptions = {
-      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+    await transporter.sendMail({
+      from: `"CampusConnect" <${process.env.EMAIL_USER}>`,
       to,
       subject,
-      text,
-      html: htmlContent || text, // Add HTML content
-    };
+      html,
+    });
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log("📧 Email sent successfully:", info.response);
-  } catch (error) {
-    console.error("❌ Email send failed:", error.message);
+    console.log(`📨 Email sent to ${to}`);
+  } catch (err) {
+    console.error("❌ Email error:", err.message);
   }
 };

@@ -1,22 +1,34 @@
-export const API_BASE =
-  import.meta.env.VITE_API_BASE || "http://localhost:8080/api/v1";
+import axios from "axios";
 
-export const authFetch = async (url, options = {}) => {
+const api = axios.create({
+  baseURL: "http://localhost:8080/api/v1",
+});
+
+// 🔥 Automatically attach token to every request
+api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
-  const isFormData = options.body instanceof FormData;
-  const headers = {
-    ...(isFormData ? {} : { "Content-Type": "application/json" }),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(options.headers || {}),
-  };
-  const res = await fetch(`${API_BASE}${url}`, {
-    ...options,
-    headers,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `Request failed (${res.status})`);
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
-  if (res.status === 204) return null;
-  return res.json();
+  return config;
+});
+
+// ⭐ Bring back authFetch so old code works perfectly
+export const authFetch = async (url, options = {}) => {
+  try {
+    const response = await api({
+      url,
+      method: options.method || "GET",
+      data: options.body || null,
+      params: options.params || null,
+      headers: options.headers || {},
+    });
+
+    return response.data;
+  } catch (err) {
+    console.error("authFetch Error:", err);
+    throw err;
+  }
 };
+
+export default api;

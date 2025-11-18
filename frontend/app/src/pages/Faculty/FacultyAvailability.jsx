@@ -1,387 +1,214 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
-import { io } from "socket.io-client";
-import { Users, Clock, MapPin, RefreshCcw, Search, Award, GraduationCap, BookOpen } from "lucide-react";
-import DashboardLayout from "../../components/DashboardLayout";
-import { authFetch } from "../../utils/api";
+// frontend/app/src/pages/Faculty/FacultyAvailability.jsx
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+import { Clock, MapPin, MessageCircle } from "lucide-react";
+import toast from "react-hot-toast";
 
-const STATUS_META = {
-  "Available": {
-    label: "Available",
-    badge: "bg-emerald-100 text-emerald-700",
-    dot: "bg-emerald-500",
-  },
-  "In Class": {
-    label: "In Class",
-    badge: "bg-blue-100 text-blue-700",
-    dot: "bg-blue-500",
-  },
-  "Busy": {
-    label: "Busy",
-    badge: "bg-amber-100 text-amber-700",
-    dot: "bg-amber-500",
-  },
-  "On Leave": {
-    label: "On Leave",
-    badge: "bg-rose-100 text-rose-700",
-    dot: "bg-rose-500",
-  },
-  "Offline": {
-    label: "Offline",
-    badge: "bg-slate-100 text-slate-600",
-    dot: "bg-slate-400",
-  },
-};
+const STATUS_OPTIONS = ["Available", "In Class", "Busy", "On Leave", "Offline"];
 
-const STATUS_FILTERS = [
-  { value: "", label: "All Teachers" },
-  { value: "Available", label: "Available Now" },
-  { value: "In Class", label: "In Class" },
-  { value: "Busy", label: "Busy" },
-  { value: "On Leave", label: "On Leave" },
-  { value: "Offline", label: "Offline" },
-];
+export default function FacultyAvailabilityFaculty() {
+  const [status, setStatus] = useState("Offline");
+  const [message, setMessage] = useState("");
+  const [location, setLocation] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [profile, setProfile] = useState(null);
 
-const dayOrder = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-  "Sunday",
-];
+  const token = localStorage.getItem("token");
 
-const sortOfficeHours = (slots = []) =>
-  [...slots].sort(
-    (a, b) => dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day)
-  );
-
-export default function FacultyAvailability() {
-  const [statuses, setStatuses] = useState([]);
-  const [filters, setFilters] = useState({
-    department: "",
-    status: "",
-    search: "",
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const socketRef = useRef(null);
-
-  const fetchStatuses = async () => {
+  // 🔹 Helper: save status to backend
+  const saveStatusToBackend = async (
+    newStatus,
+    newMessage = "",
+    newLocation = ""
+  ) => {
     try {
-      setLoading(true);
-      setError("");
-      const params = new URLSearchParams();
-      if (filters.department) params.append("department", filters.department);
-      if (filters.status) params.append("status", filters.status);
-      if (filters.search) params.append("search", filters.search);
-
-      const data = await authFetch(`/faculty/status?${params.toString()}`);
-      setStatuses(data.statuses || []);
+      await axios.patch(
+        "/api/v1/faculty/status/update",
+        {
+          status: newStatus,
+          message: newMessage,
+          location: newLocation,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
     } catch (err) {
-      console.error("Faculty availability load error", err);
-      setError(err.message || "Failed to load faculty statuses");
-    } finally {
-      setLoading(false);
+      console.error("Auto status update failed:", err);
+      // don't toast here to avoid spam on page load
     }
   };
 
-  // ✅ Socket.io setup for real-time updates
+  // 🔹 On mount: load current status.
+  // If no status / 404 → set to "Available" automatically.
   useEffect(() => {
-    try {
-      // Initialize socket connection
-      socketRef.current = io("http://localhost:8080", {
-        transports: ["websocket", "polling"],
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionAttempts: 5,
-      });
-
-      socketRef.current.on("connect", () => {
-        console.log("✅ Connected to Socket.io server");
-        // Join the faculty-status room
-        socketRef.current.emit("join-faculty-status");
-      });
-
-      // Listen for faculty status updates
-      socketRef.current.on("faculty-status-updated", (data) => {
-        console.log("📡 Received faculty status update:", data);
-        setStatuses((prevStatuses) => {
-          const updatedStatuses = [...prevStatuses];
-          const facultyId = data.facultyId || (data.status?.faculty?._id?.toString());
-          const index = updatedStatuses.findIndex(
-            (s) => {
-              const id = s.faculty?._id?.toString() || s.faculty?._id;
-              return id === facultyId || id === data.facultyId;
-            }
-          );
-          
-          if (index !== -1) {
-            // Update existing status
-            updatedStatuses[index] = data.status;
-          } else if (data.status) {
-            // Add new status if faculty not in list
-            updatedStatuses.push(data.status);
-          }
-          
-          return updatedStatuses;
+    const fetchStatus = async () => {
+      try {
+        const res = await axios.get("/api/v1/faculty/status/me", {
+          headers: { Authorization: `Bearer ${token}` },
         });
-      });
 
-      socketRef.current.on("disconnect", () => {
-        console.log("❌ Disconnected from Socket.io server");
-      });
+        const s = res.data.status || {};
+        const currentStatus = s.status || "Offline";
 
-      socketRef.current.on("connect_error", (err) => {
-        console.error("Socket connection error:", err);
-        // Don't crash the app, just log the error
-      });
-    } catch (err) {
-      console.error("Failed to initialize socket:", err);
-      // Don't crash the app if socket.io fails
-    }
+        setStatus(currentStatus);
+        setMessage(s.message || "");
+        setLocation(s.location || "");
+        setProfile(s.faculty || null);
 
-    // Cleanup on unmount
-    return () => {
-      if (socketRef.current) {
-        try {
-          socketRef.current.disconnect();
-        } catch (err) {
-          console.error("Error disconnecting socket:", err);
+        // If no status stored yet, auto-set to Available
+        if (!s.status) {
+          setStatus("Available");
+          setMessage("");
+          setLocation("");
+          await saveStatusToBackend("Available", "", "");
         }
+      } catch (err) {
+        // If faculty has no status record yet, create one as "Available"
+        if (err.response?.status === 404) {
+          setStatus("Available");
+          setMessage("");
+          setLocation("");
+          await saveStatusToBackend("Available", "", "");
+        } else {
+          console.error("Failed to load faculty status:", err);
+          toast.error("Failed to load your current status");
+        }
+      } finally {
+        setLoading(false);
       }
     };
-  }, []);
 
-  useEffect(() => {
-    fetchStatuses();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.department, filters.status]);
+    if (token) fetchStatus();
+  }, [token]);
 
-  const handleRefresh = () => fetchStatuses();
+  const handleSave = async () => {
+    if (!status) {
+      toast.error("Please select a status");
+      return;
+    }
 
-  const filteredStatuses = useMemo(() => {
-    if (!filters.search) return statuses;
-    const term = filters.search.trim().toLowerCase();
-    return statuses.filter((item) =>
-      item.faculty.name.toLowerCase().includes(term)
+    setSaving(true);
+    try {
+      await saveStatusToBackend(status, message, location);
+      toast.success("Status updated successfully");
+    } catch (err) {
+      console.error("Failed to update status:", err);
+      toast.error("Failed to update status");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-gray-600 text-lg">Loading your availability...</p>
+      </div>
     );
-  }, [statuses, filters.search]);
+  }
 
   return (
-    <DashboardLayout title="Faculty Finder">
-      <div className="space-y-6">
-        {/* Header Section */}
-        <div className="bg-gradient-to-r from-orange-500 to-blue-600 text-white rounded-3xl shadow-lg p-8">
-          <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-gray-100 p-6 flex justify-center">
+      <div className="bg-white max-w-3xl w-full rounded-2xl shadow-md p-6 md:p-8">
+        {/* Header */}
+        <h1 className="text-2xl md:text-3xl font-bold text-blue-700 mb-4">
+          Manage Your Availability
+        </h1>
+        <p className="text-gray-600 mb-6">
+          Set your current status so that students and admins can see if you are
+          available, in class, or busy.
+        </p>
+
+        {/* Profile Card */}
+        {profile && (
+          <div className="flex items-center space-x-4 bg-blue-50 rounded-xl p-4 mb-6">
+            <img
+              src={profile.photo || "/default-avatar.png"}
+              alt="Faculty"
+              className="w-14 h-14 rounded-full border-2 border-white object-cover"
+            />
             <div>
-              <h1 className="text-4xl font-bold mb-2">Faculty Finder</h1>
-              <p className="text-white/90 text-lg">
-                Find and connect with faculty members across departments
+              <p className="font-semibold text-blue-800 text-lg">
+                {profile.name}
+              </p>
+              <p className="text-sm text-gray-600">
+                {profile.department || "Department not set"}
               </p>
             </div>
-            <Users size={48} className="text-white/80" />
+          </div>
+        )}
+
+        {/* Status Selector */}
+        <div className="mb-5">
+          <label className="block font-semibold mb-2 text-gray-700">
+            Current Status
+          </label>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {STATUS_OPTIONS.map((opt) => {
+              const isActive = status === opt;
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setStatus(opt)}
+                  className={`px-3 py-2 rounded-lg border text-sm font-medium ${
+                    isActive
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  {opt}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Filter Buttons */}
-        <div className="flex flex-wrap gap-3 bg-white p-4 rounded-2xl shadow-md border border-blue-100">
-          {STATUS_FILTERS.map((filter) => (
-            <button
-              key={filter.value}
-              onClick={() => setFilters((prev) => ({ ...prev, status: filter.value }))}
-              className={`px-6 py-3 rounded-full font-semibold transition-all flex items-center gap-2 ${
-                filters.status === filter.value
-                  ? "bg-yellow-400 text-gray-900 shadow-lg scale-105"
-                  : "bg-white text-gray-700 border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50"
-              }`}
-            >
-              <Users size={18} />
-              {filter.label}
-            </button>
-          ))}
+        {/* Location */}
+        <div className="mb-4">
+          <label className="block font-semibold mb-1 text-gray-700">
+            <span className="inline-flex items-center">
+              <MapPin className="w-4 h-4 mr-1" /> Current Location (optional)
+            </span>
+          </label>
+          <input
+            type="text"
+            placeholder="Example: CSE Block - Room 204"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
         </div>
 
-        {/* Search and Department Filter */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-5 rounded-2xl shadow border border-blue-100">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-            <input
-              type="text"
-              value={filters.search}
-              onChange={(e) =>
-                setFilters((prev) => ({ ...prev, search: e.target.value }))
-              }
-              placeholder="Search faculty by name..."
-              className="w-full pl-10 pr-4 py-3 border border-blue-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200"
-            />
-          </div>
-          <div className="relative">
-            <select
-              value={filters.department}
-              onChange={(e) =>
-                setFilters((prev) => ({ ...prev, department: e.target.value }))
-              }
-              className="w-full px-4 py-3 border border-blue-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 appearance-none bg-white"
-            >
-              <option value="">All Departments</option>
-              {["CSE", "AIML", "ECE", "EEE", "CIVIL", "ME", "ISE"].map(
-                (dept) => (
-                  <option key={dept} value={dept}>
-                    {dept}
-                  </option>
-                )
-              )}
-            </select>
-          </div>
-          <button
-            onClick={handleRefresh}
-            className="md:col-span-2 flex items-center justify-center gap-2 text-blue-600 hover:text-blue-700 font-medium"
-          >
-            <RefreshCcw size={18} /> Refresh
-          </button>
+        {/* Message */}
+        <div className="mb-6">
+          <label className="block font-semibold mb-1 text-gray-700">
+            <span className="inline-flex items-center">
+              <MessageCircle className="w-4 h-4 mr-1" /> Message for Students
+              (optional)
+            </span>
+          </label>
+          <textarea
+            rows={3}
+            placeholder="Example: In class till 11:30 AM. Available in cabin after that."
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
         </div>
 
-        {/* Faculty Cards Grid */}
-        <div className="bg-white rounded-3xl shadow-md border border-blue-100">
-          {loading ? (
-            <div className="py-16 text-center text-gray-500">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="mt-4">Loading faculty availability...</p>
-            </div>
-          ) : error ? (
-            <div className="py-16 text-center text-rose-500">{error}</div>
-          ) : filteredStatuses.length === 0 ? (
-            <div className="py-16 text-center text-gray-500">
-              No faculty records found.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 p-6">
-              {filteredStatuses
-                .filter((item) => item.faculty && item.faculty._id)
-                .map((item) => {
-                  const meta = STATUS_META[item.status] || STATUS_META["Offline"];
-                  const hours = sortOfficeHours(item.officeHours || []);
-                  const facultyId = item.faculty._id?.toString() || item.faculty._id;
-                return (
-                  <div
-                      key={facultyId}
-                    className="bg-white rounded-2xl border-2 border-gray-200 shadow-lg hover:shadow-xl transition-all p-6"
-                  >
-                    {/* Profile Picture and Name */}
-                    <div className="flex items-start gap-4 mb-4">
-                      <div className="relative">
-                        <img
-                          src={item.faculty.photo ? `http://localhost:8080${item.faculty.photo}` : "https://i.pravatar.cc/120"}
-                            alt={item.faculty.name || "Faculty"}
-                          className="w-24 h-24 rounded-full border-4 border-blue-100 object-cover"
-                        />
-                        <div className={`absolute bottom-0 right-0 w-4 h-4 ${meta.dot} rounded-full border-2 border-white`}></div>
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="text-xl font-bold text-gray-800 mb-1">
-                            {item.faculty.name || "Unknown Faculty"}
-                        </h3>
-                        <p className="text-sm text-gray-600 mb-2">
-                          {item.faculty.department || "General Department"}
-                        </p>
-                        <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full ${meta.badge}`}>
-                          {meta.label}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Experience Badge */}
-                    <div className="mb-4">
-                      <span className="inline-block bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-semibold text-sm">
-                        Experience: 20+ Years
-                      </span>
-                    </div>
-
-                    {/* Details Section */}
-                    <div className="space-y-3 mb-4">
-                      <div className="flex items-start gap-2">
-                        <GraduationCap size={18} className="text-blue-600 mt-0.5" />
-                        <div>
-                          <span className="text-xs text-gray-500">Qualifications:</span>
-                          <p className="text-sm font-medium text-gray-800">Master's</p>
-                        </div>
-                      </div>
-
-                      {item.faculty.subjects && (
-                        <div className="flex items-start gap-2">
-                          <BookOpen size={18} className="text-blue-600 mt-0.5" />
-                          <div>
-                            <span className="text-xs text-gray-500">Subjects:</span>
-                            <p className="text-sm font-medium text-gray-800">{item.faculty.subjects}</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {item.faculty.achievements && (
-                        <div className="flex items-start gap-2">
-                          <Award size={18} className="text-blue-600 mt-0.5" />
-                          <div>
-                            <span className="text-xs text-gray-500">Achievements:</span>
-                            <p className="text-sm font-medium text-gray-800">{item.faculty.achievements}</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {item.location && (
-                        <div className="flex items-start gap-2">
-                          <MapPin size={18} className="text-blue-600 mt-0.5" />
-                          <div>
-                            <span className="text-xs text-gray-500">Location:</span>
-                            <p className="text-sm font-medium text-gray-800">{item.location}</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {item.message && (
-                        <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl">
-                          <p className="text-sm text-gray-700">{item.message}</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Office Hours */}
-                    {hours.length > 0 && (
-                      <div className="mb-4 border-t border-gray-200 pt-3">
-                        <h4 className="text-xs uppercase text-gray-500 tracking-wide mb-2 font-semibold">
-                          Office Hours
-                        </h4>
-                        <ul className="space-y-1 text-sm text-gray-600">
-                          {hours.map((slot, idx) => (
-                            <li key={idx} className="flex justify-between items-center">
-                              <span className="font-medium">{slot.day}</span>
-                              <span className="text-gray-700">
-                                {slot.from} - {slot.to}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Action Buttons */}
-                    <div className="flex gap-2 mt-4">
-                      <button className="flex-1 bg-gray-100 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-200 transition text-sm font-medium flex items-center justify-center gap-2">
-                        <Clock size={16} />
-                        No Demo Link
-                      </button>
-                      <button className="flex-1 bg-orange-500 text-white py-2 px-4 rounded-lg hover:bg-orange-600 transition text-sm font-medium">
-                        View Details
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        {/* Save Button */}
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="w-full flex items-center justify-center space-x-2 bg-blue-600 text-white rounded-lg py-2.5 font-semibold hover:bg-blue-700 disabled:opacity-60"
+        >
+          <Clock className="w-4 h-4" />
+          <span>{saving ? "Saving..." : "Save Availability"}</span>
+        </button>
       </div>
-    </DashboardLayout>
+    </div>
   );
 }
-

@@ -11,21 +11,18 @@ export const createItem = async (req, res) => {
     const { type, title, description, location } = req.body;
     const user = req.user;
 
-    if (!user) {
+    if (!user)
       return res
         .status(401)
         .json({ success: false, message: "Unauthorized user" });
-    }
 
-    if (!title || !description || !location || !type) {
+    if (!title || !description || !location || !type)
       return res
         .status(400)
-        .json({ success: false, message: "All fields are required" });
-    }
+        .json({ success: false, message: "All fields required" });
 
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
-    // Create new item
     const newItem = await LostFound.create({
       title,
       description,
@@ -33,101 +30,28 @@ export const createItem = async (req, res) => {
       type,
       imageUrl,
       postedBy: user._id,
+      department: user.department, // IMPORTANT for admin filtering
       status: "open",
     });
-
-    // 🔍 Find opposite type items (AI Matching)
-    const oppositeType = type === "found" ? "lost" : "found";
-    const allOppositeItems = await LostFound.find({
-      type: oppositeType,
-      status: "open",
-    }).populate("postedBy", "name email");
-
-    let bestMatch = null;
-    let highestScore = 0;
-
-    for (const item of allOppositeItems) {
-      const titleScore = stringSimilarity.compareTwoStrings(
-        title.toLowerCase(),
-        item.title.toLowerCase()
-      );
-      const descScore = stringSimilarity.compareTwoStrings(
-        description.toLowerCase(),
-        item.description.toLowerCase()
-      );
-      const locScore = stringSimilarity.compareTwoStrings(
-        location.toLowerCase(),
-        item.location.toLowerCase()
-      );
-
-      const finalScore = 0.5 * titleScore + 0.3 * descScore + 0.2 * locScore;
-
-      if (finalScore > highestScore) {
-        highestScore = finalScore;
-        bestMatch = item;
-      }
-    }
-
-    // ✅ If similarity > 0.6, mark both as matched and notify
-    if (bestMatch && highestScore >= 0.6) {
-      newItem.status = "matched";
-      bestMatch.status = "matched";
-      await newItem.save();
-      await bestMatch.save();
-
-      const finder = type === "found" ? user : bestMatch.postedBy;
-      const owner = type === "found" ? bestMatch.postedBy : user;
-
-      // Email both parties
-      await Promise.all([
-        sendEmail(
-          owner.email,
-          "🎯 Possible Match Found for Your Item",
-          `Hi ${owner.name}, we found a potential match for your "${title}". Check Campus Connect Lost & Found for details.`
-        ),
-        sendEmail(
-          finder.email,
-          "🎯 Potential Match Found",
-          `Hi ${finder.name}, someone reported a similar ${oppositeType} item: "${title}". You might want to verify it.`
-        ),
-      ]);
-
-      // Create in-app notifications
-      await Promise.all([
-        createNotification(
-          owner._id,
-          `📦 Potential match found for "${title}". Check Lost & Found.`
-        ),
-        createNotification(
-          finder._id,
-          `📦 Your item "${title}" matched with another user's report.`
-        ),
-      ]);
-    }
 
     return res.status(201).json({
       success: true,
-      message: bestMatch
-        ? "Item added successfully — potential match found!"
-        : "Item added successfully — no matches found yet.",
+      message: "Item added",
       item: newItem,
-      match: bestMatch || null,
     });
   } catch (error) {
-    console.error("❌ createItem error:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Server error while creating item" });
+    console.error("createItem error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
 /**
- * ✅ Fetch all items
+ * GET All Items
  */
 export const getItems = async (req, res) => {
   try {
     const items = await LostFound.find()
-      .populate("postedBy", "name email")
+      .populate("postedBy", "name email role department")
       .sort({ createdAt: -1 });
     res.json({ success: true, items });
   } catch (error) {
@@ -135,7 +59,6 @@ export const getItems = async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to fetch items" });
   }
 };
-
 /**
  * ✅ Verify Claim
  */
@@ -220,13 +143,11 @@ export const verifyClaim = async (req, res) => {
 };
 
 /**
- * ✅ Mark Returned
+ * MARK Returned
  */
 export const markReturned = async (req, res) => {
   try {
-    const { id } = req.params;
-    const item = await LostFound.findById(id);
-
+    const item = await LostFound.findById(req.params.id);
     if (!item)
       return res
         .status(404)
@@ -240,35 +161,67 @@ export const markReturned = async (req, res) => {
     item.status = "returned";
     await item.save();
 
-    res.json({ success: true, message: "Item marked as returned" });
+    res.json({ success: true, message: "Item marked returned" });
   } catch (error) {
     console.error("markReturned error:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to mark item returned" });
+    res.status(500).json({ success: false, message: "Failed" });
   }
 };
 
 /**
- * ✅ Delete Item
+ * DELETE Item — updated with superadmin / department admin / functional admin logic
  */
 export const deleteItem = async (req, res) => {
   try {
-    const { id } = req.params;
-    const item = await LostFound.findById(id);
+    const item = await LostFound.findById(req.params.id).populate(
+      "postedBy",
+      "department"
+    );
 
     if (!item)
       return res
         .status(404)
         .json({ success: false, message: "Item not found" });
 
-    if (String(item.postedBy) !== String(req.user._id))
+    const role = req.user.role;
+    const userDept = req.user.department;
+
+    // SUPERADMIN CAN DELETE ANYTHING
+    if (role === "superadmin") {
+      await item.deleteOne();
+      return res.json({ success: true, message: "Deleted successfully" });
+    }
+
+    // DEPARTMENT ADMIN → Only same department
+    if (role === "department_admin") {
+      if (item.postedBy?.department !== userDept) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied – This item is not from your department",
+        });
+      }
+      await item.deleteOne();
+      return res.json({ success: true, message: "Deleted successfully" });
+    }
+
+    // FUNCTIONAL ADMIN → Only delete lost/found items from their selected category (optional)
+    if (role === "functional_admin") {
+      // If you have categories, check here
+      return res.status(403).json({
+        success: false,
+        message: "Functional admin restricted — no delete permissions here",
+      });
+    }
+
+    // Normal users — only delete their own
+    if (String(item.postedBy._id) !== String(req.user._id)) {
       return res
         .status(403)
         .json({ success: false, message: "Not authorized" });
+    }
 
     await item.deleteOne();
-    res.json({ success: true, message: "Item deleted successfully" });
+    res.json({ success: true, message: "Deleted successfully" });
   } catch (error) {
     console.error("deleteItem error:", error);
     res.status(500).json({ success: false, message: "Failed to delete item" });
@@ -276,20 +229,18 @@ export const deleteItem = async (req, res) => {
 };
 
 /**
- * ✅ Get User History
+ * HISTORY
  */
 export const getHistory = async (req, res) => {
   try {
-    const userId = req.user._id;
     const items = await LostFound.find({
-      $or: [{ postedBy: userId }, { historyOf: userId }],
+      $or: [{ postedBy: req.user._id }, { historyOf: req.user._id }],
       status: { $in: ["verified", "matched", "returned"] },
     }).sort({ updatedAt: -1 });
+
     res.json({ success: true, items });
   } catch (error) {
     console.error("getHistory error:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to fetch history" });
+    res.status(500).json({ success: false, message: "Failed to fetch" });
   }
 };

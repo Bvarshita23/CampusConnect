@@ -2,46 +2,53 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import fs from "fs";
-import crypto from "crypto";  
-import { sendEmail } from "../utils/emailHelper.js"; // ✅ Changed to named import
-
-// 🔹 Step 1: Forgot Password
+import { sendEmail } from "../utils/emailHelper.js";
+import xlsx from "xlsx";
+import crypto from "crypto";
+import path from "path";
+import AdmZip from "adm-zip";
+/* ---------------------------------------------
+   PASSWORD RESET – Step 1
+---------------------------------------------- */
 export const forgotPassword = async (req, res) => {
   const { email } = req.body;
 
   const user = await User.findOne({ email });
   if (!user)
-    return res.status(404).json({ success: false, message: "Email not found" });
+    return res.status(200).json({
+      success: true,
+      message: "If this email exists, password reset link sent",
+    });
 
   const resetToken = crypto.randomBytes(32).toString("hex");
   user.resetPasswordToken = resetToken;
-  user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 min
-
+  user.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
   await user.save();
 
   const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
-  const htmlContent = `
-    <h2>Password Reset Request</h2>
-    <p>Click the link below to reset your password:</p>
-    <a href="${resetUrl}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Reset Password</a>
-    <p>This link expires in 10 minutes.</p>
-  `;
+  await sendEmail(user.email, "Password Reset", resetUrl);
 
-  await sendEmail(
-    user.email,
-    "Password Reset Request",
-    `Click the link to reset your password:\n${resetUrl}`,
-    htmlContent
-  );
-
-  res.json({ success: true, message: "Reset link sent to email" });
+  res.json({ success: true, message: "Reset link sent" });
 };
 
-// 🔹 Step 2: Reset Password
+/* ---------------------------------------------
+   PASSWORD RESET – Step 2
+---------------------------------------------- */
 export const resetPassword = async (req, res) => {
   const { token } = req.params;
   const { password } = req.body;
+
+  const strongPasswordRegex =
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!#%*?&])[A-Za-z\d@$!#%*?&]{8,}$/;
+
+  if (!strongPasswordRegex.test(password)) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Weak password — must contain upper/lowercase, number & special char",
+    });
+  }
 
   const user = await User.findOne({
     resetPasswordToken: token,
@@ -53,7 +60,7 @@ export const resetPassword = async (req, res) => {
       .status(400)
       .json({ success: false, message: "Invalid or expired token" });
 
-  user.password = password; // your model auto hashes
+  user.password = password;
   user.resetPasswordToken = undefined;
   user.resetPasswordExpire = undefined;
 
@@ -62,146 +69,149 @@ export const resetPassword = async (req, res) => {
   res.json({ success: true, message: "Password reset successful" });
 };
 
-// ✅ Register User
+/* ---------------------------------------------
+   REGISTER USER
+---------------------------------------------- */
+function generatePassword() {
+  const length = 8;
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$!";
+  let pwd = "";
+  for (let i = 0; i < length; i++) {
+    pwd += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return pwd;
+}
+
+/* ---------------------------------------------
+   REGISTER USER
+---------------------------------------------- */
 export const register = async (req, res) => {
   try {
-    let { name, email, password, role, department, year, usn } = req.body;
+    let { name, email, role, department, year, usn } = req.body;
 
-    if (!name || !email || !password) {
+    if (!name || !email)
       return res.status(400).json({
         success: false,
-        message: "Name, email and password are required",
+        message: "Name and email are required",
       });
-    }
 
     email = email.toLowerCase().trim();
+
     const existing = await User.findOne({ email });
-    if (existing) {
+    if (existing)
       return res
         .status(400)
         .json({ success: false, message: "Email already exists" });
-    }
 
-    // 🔹 Normalize USN/FacultyID
+    // Generate auto random password
+    const autoPassword = generatePassword();
+
+    // Normalize USN
     let normalizedUsn = usn ? String(usn).trim().toUpperCase() : "";
 
-    // 🔹 AUTO-DETECT ROLE for student & faculty ONLY
-    if (normalizedUsn.startsWith("3BR")) {
-      // 🎓 Student USN
-      role = "student";
-    } else if (
+    // Auto-detect student or faculty
+    if (normalizedUsn.startsWith("3BR")) role = "student";
+    else if (
       normalizedUsn.startsWith("CSE") ||
       normalizedUsn.startsWith("AIML") ||
       normalizedUsn.startsWith("CSAI") ||
       normalizedUsn.startsWith("MEC")
-    ) {
-      // 👩‍🏫 Faculty ID (department prefixes)
+    )
       role = "faculty";
-    } else {
-      // 🔸 For admins: use whatever role superadmin sends in body
-      // (admin, superadmin, department_admin, functional_admin)
-      // If frontend didn't send role, default to student (optional)
-      if (!role) {
-        role = "student";
-      }
-    }
 
-    // 🔹 Build user object safely (avoid empty usn/year saving)
+    // Build user object
     const userData = {
       name,
       email,
-      password,
+      password: autoPassword,
       role,
     };
 
     if (department) userData.department = department;
     if (year) userData.year = year;
     if (normalizedUsn) userData.usn = normalizedUsn;
-
-    // Optional: handle photo if you use multer here
     if (req.file) {
-      userData.photo = `/uploads/profiles/${req.file.filename}`;
+      const result = await uploadBufferToCloudinary(
+        req.file.buffer,
+        "campusconnect/users"
+      );
+      userData.photo = result.secure_url; // cloudinary URL
     }
 
     const user = await User.create(userData);
 
-    // (Optional) remove password before sending back
-    const plainUser = user.toObject();
-    delete plainUser.password;
+    // HTML email message
+    const htmlMessage = `
+<h2 style="color:#2563eb;">Welcome to CampusConnect 🎉</h2>
 
-    return res.status(201).json({
+<p>Hi <strong>${name}</strong>,</p>
+
+<p>Your account has been successfully created. Here are your login details:</p>
+
+<table style="padding:12px;border:1px solid #ddd;border-radius:8px;">
+  <tr><td><strong>Email:</strong></td><td>${email}</td></tr>
+  <tr><td><strong>Password:</strong></td><td>${autoPassword}</td></tr>
+  <tr><td><strong>Role:</strong></td><td>${role}</td></tr>
+</table>
+
+<p>You can now log in to the portal.</p>
+
+<p style="margin-top:12px;color:#666;">Regards,<br>CampusConnect Team</p>
+`;
+
+    try {
+      await sendEmail(email, "Your CampusConnect Login Details", htmlMessage);
+      console.log("📌 Email sent successfully");
+    } catch (e) {
+      console.log("❌ Failed to send email:", e.message);
+    }
+
+    const safeUser = user.toObject();
+    delete safeUser.password;
+
+    res.status(201).json({
       success: true,
-      message: "User registered successfully",
-      user: plainUser,
+      message: "User registered & password emailed",
+      emailSent: true,
+      user: safeUser,
     });
   } catch (err) {
-    console.error("Register error:", err);
-    return res
-      .status(500)
-      .json({ success: false, message: "Server error while registering" });
+    console.log("Register error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
 
-// ✅ Login User
+/* ---------------------------------------------
+   LOGIN
+---------------------------------------------- */
 export const loginUser = async (req, res) => {
   try {
-    const { email, password, role } = req.body;
+    const { email, password } = req.body;
 
-    if (!email || !password) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Email and password are required" });
-    }
+    const genericError = {
+      success: false,
+      message: "User not found",
+    };
+
+    if (!email || !password) return res.status(404).json(genericError);
 
     const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user) {
-      console.log("❌ User not found for email:", email);
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
-    }
+    if (!user) return res.status(404).json(genericError);
 
-    // Check if user has a password (should always have one, but safety check)
-    if (!user.password) {
-      console.error("❌ User has no password hash:", user.email);
-      return res.status(500).json({
-        success: false,
-        message: "User account error. Please contact administrator.",
-      });
-    }
-
-    // Optional: Validate role if provided (for frontend role selection) - Make it a warning, not blocking
-    if (role && user.role.toLowerCase() !== role.toLowerCase()) {
-      console.log(
-        `⚠️ Role mismatch: User is ${user.role}, but selected ${role}`
-      );
-      // Don't block login, just log it - user might have selected wrong role
-    }
-
-    console.log("🔍 Comparing password for user:", user.email);
-    const isMatch = await bcrypt.compare(password, user.password);
-    console.log("🔐 Password match:", isMatch);
-    if (!isMatch) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Invalid credentials" });
-    }
-
-    // Check if JWT_SECRET is set
-    if (!process.env.JWT_SECRET) {
-      console.error("❌ JWT_SECRET is not set in environment variables");
-      return res
-        .status(500)
-        .json({ success: false, message: "Server configuration error" });
-    }
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(404).json(genericError);
 
     const token = jwt.sign(
-      { id: user._id, role: user.role },
+      { id: user._id, role: user.role, department: user.department },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    res.status(200).json({
+    res.json({
       success: true,
       token,
       user: {
@@ -212,126 +222,103 @@ export const loginUser = async (req, res) => {
         department: user.department,
         year: user.year,
         usn: user.usn,
-        photo: user.photo,
       },
     });
   } catch (error) {
-    console.error("❌ Login Error:", error);
-    console.error("❌ Error Stack:", error.stack);
-    res.status(500).json({
-      success: false,
-      message: "Server error during login",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
-      details: process.env.NODE_ENV === "development" ? error.stack : undefined,
-    });
+    console.error("Login error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
-
-// ✅ Get Profile
+/* ---------------------------------------------
+   GET PROFILE
+---------------------------------------------- */
 export const getProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select("-password");
     res.json({ success: true, user });
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
-// ✅ Update Own Profile Photo
+/* ---------------------------------------------
+   UPDATE PROFILE PHOTO
+---------------------------------------------- */
 export const updateProfilePhoto = async (req, res) => {
   try {
-    if (!req.file) {
-      return res
-        .status(400)
-        .json({ success: false, message: "No photo file provided" });
-    }
+    if (!req.file)
+      return res.status(400).json({ success: false, message: "No photo file" });
 
     const user = await User.findById(req.user.id);
-    if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
-    }
-
-    // Delete old photo if exists
-    if (user.photo && fs.existsSync(`.${user.photo}`)) {
-      fs.unlinkSync(`.${user.photo}`);
-    }
-
-    // Update photo path
-    const photoPath = `/uploads/profiles/${user.role}s/${req.file.filename}`;
-    user.photo = photoPath;
-    await user.save();
-
-    res.json({
-      success: true,
-      message: "Profile photo updated successfully",
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        photo: user.photo,
-      },
-    });
-  } catch (error) {
-    console.error("❌ Update photo error:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Server error while updating photo" });
-  }
-};
-
-// ✅ Get All Users
-export const getAllUsers = async (req, res) => {
-  try {
-    const users = await User.find().select("-password");
-    res.json({ success: true, users });
-  } catch (error) {
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-};
-
-// ✅ Delete User (prevent deleting admin)
-export const deleteUser = async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id);
     if (!user)
       return res
         .status(404)
         .json({ success: false, message: "User not found" });
-
-    if (user.role === "admin")
-      return res
-        .status(403)
-        .json({ success: false, message: "Admin cannot be deleted" });
 
     if (user.photo && fs.existsSync(`.${user.photo}`))
       fs.unlinkSync(`.${user.photo}`);
 
-    await User.findByIdAndDelete(req.params.id);
-    res.json({ success: true, message: "User deleted successfully" });
-  } catch (error) {
+    user.photo = `/uploads/profiles/${user.role}s/${req.file.filename}`;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Photo updated",
+      user,
+    });
+  } catch (err) {
+    console.log("Photo update error", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
-// ✅ Update User
+/* ---------------------------------------------
+   GET ALL USERS
+---------------------------------------------- */
+export const getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find().select("-password");
+    res.json({ success: true, users });
+  } catch {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/* ---------------------------------------------
+   DELETE USER
+---------------------------------------------- */
+export const deleteUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+
+    if (user.photo && fs.existsSync(`.${user.photo}`))
+      fs.unlinkSync(`.${user.photo}`);
+
+    await user.deleteOne();
+
+    res.json({ success: true, message: "User deleted" });
+  } catch {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/* ---------------------------------------------
+   UPDATE USER
+---------------------------------------------- */
 export const updateUser = async (req, res) => {
   try {
     const { name, email, role, department, year, usn } = req.body;
-    const photo = req.file
-      ? `/uploads/profiles/${role}s/${req.file.filename}`
-      : null;
 
     const user = await User.findById(req.params.id);
     if (!user)
       return res
         .status(404)
         .json({ success: false, message: "User not found" });
-
-    if (photo && user.photo && fs.existsSync(`.${user.photo}`))
-      fs.unlinkSync(`.${user.photo}`);
 
     user.name = name;
     user.email = email;
@@ -339,13 +326,451 @@ export const updateUser = async (req, res) => {
     user.department = department;
     user.year = year;
     user.usn = usn;
-    if (photo) user.photo = photo;
 
     await user.save();
+
     res.json({ success: true, message: "User updated successfully", user });
   } catch (error) {
     res
       .status(500)
       .json({ success: false, message: "Server error while updating" });
+  }
+};
+/* ---------------------------------------------
+   EXCEL PARSER
+---------------------------------------------- */
+const parseExcelFile = (filePath) => {
+  const workbook = xlsx.readFile(filePath);
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  return xlsx.utils.sheet_to_json(sheet, { defval: "" });
+};
+
+/* ---------------------------------------------
+   BULK UPLOAD – STUDENTS (FIXED FOR ZIP)
+---------------------------------------------- */
+/* ---------------------------------------------
+   BULK UPLOAD – STUDENTS (ZIP, Excel Only)
+---------------------------------------------- */
+export const bulkUploadStudents = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Zip file is required" });
+    }
+
+    const zipPath = req.file.path;
+    const extractDir = path.join("uploads", "extracted", Date.now().toString());
+
+    if (!fs.existsSync(extractDir)) {
+      fs.mkdirSync(extractDir, { recursive: true });
+    }
+
+    // Extract ZIP
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(extractDir, true);
+
+    // Find Excel file
+    const files = fs.readdirSync(extractDir);
+    const excelFile = files.find(
+      (f) => f.endsWith(".xlsx") || f.endsWith(".xls")
+    );
+
+    if (!excelFile) {
+      return res.status(400).json({
+        success: false,
+        message: "No Excel file found inside ZIP",
+      });
+    }
+
+    const rows = parseExcelFile(path.join(extractDir, excelFile));
+
+    let added = 0;
+    let updated = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    for (const row of rows) {
+      const name = row.name || row.Name || "";
+      const email = row.email || row.Email || "";
+      const usn = (row.usn || row.USN || "").toUpperCase();
+      const department = row.department || row.Department || "";
+      const year = row.year || row.Year || "";
+
+      if (!name || !email || !usn) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        let user = await User.findOne({ usn });
+
+        if (user) {
+          user.name = name;
+          user.email = email;
+          user.department = department;
+          user.year = year;
+          user.role = "student";
+          await user.save();
+          updated++;
+        } else {
+          const password = generatePassword();
+          const hashedPassword = await bcrypt.hash(password, 10);
+
+          await User.create({
+            name,
+            email,
+            usn,
+            department,
+            year,
+            role: "student",
+            password: hashedPassword,
+          });
+
+          added++;
+        }
+      } catch (err) {
+        errors++;
+      }
+    }
+
+    // cleanup
+    fs.rmSync(extractDir, { recursive: true });
+    fs.unlinkSync(zipPath);
+
+    return res.json({
+      success: true,
+      message: "Student bulk upload completed",
+      summary: { added, updated, skipped, errors },
+    });
+  } catch (err) {
+    console.error("Student bulk upload error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error during student bulk upload",
+    });
+  }
+};
+/* ---------------------------------------------
+   BULK UPLOAD – FACULTY (Excel Only)
+---------------------------------------------- */
+export const bulkUploadFaculty = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Zip file is required" });
+    }
+
+    const zipPath = req.file.path;
+    const extractDir = path.join("uploads", "extracted", Date.now().toString());
+
+    if (!fs.existsSync(extractDir)) {
+      fs.mkdirSync(extractDir, { recursive: true });
+    }
+
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(extractDir, true);
+
+    const files = fs.readdirSync(extractDir);
+    const excelFile = files.find(
+      (f) => f.endsWith(".xlsx") || f.endsWith(".xls")
+    );
+
+    if (!excelFile) {
+      return res.status(400).json({
+        success: false,
+        message: "No Excel file found in ZIP",
+      });
+    }
+
+    const rows = parseExcelFile(path.join(extractDir, excelFile));
+
+    let added = 0,
+      updated = 0,
+      skipped = 0,
+      errors = 0;
+
+    for (const row of rows) {
+      const name = row.name || "";
+      const email = row.email || "";
+      const facultyId = (row.usn || row.facultyId || "").toUpperCase();
+      const department = row.department || "";
+
+      if (!name || !email || !facultyId) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        let user = await User.findOne({ usn: facultyId });
+
+        if (user) {
+          user.name = name;
+          user.email = email;
+          user.department = department;
+          user.role = "faculty";
+          await user.save();
+          updated++;
+        } else {
+          await User.create({
+            name,
+            email,
+            usn: facultyId,
+            department,
+            role: "faculty",
+            password: facultyId,
+          });
+
+          added++;
+        }
+      } catch (err) {
+        errors++;
+      }
+    }
+
+    fs.rmSync(extractDir, { recursive: true });
+    fs.unlinkSync(zipPath);
+
+    return res.json({
+      success: true,
+      message: "Faculty bulk upload completed",
+      summary: { added, updated, skipped, errors },
+    });
+  } catch (err) {
+    console.error("Faculty bulk upload error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error during faculty upload",
+    });
+  }
+};
+
+/* ---------------------------------------------
+   BULK UPLOAD – ADMINS (Excel Only)
+---------------------------------------------- */
+export const bulkUploadAdmins = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Zip file is required" });
+    }
+
+    const zipPath = req.file.path;
+    const extractDir = path.join("uploads", "extracted", Date.now().toString());
+
+    if (!fs.existsSync(extractDir)) {
+      fs.mkdirSync(extractDir, { recursive: true });
+    }
+
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(extractDir, true);
+
+    const files = fs.readdirSync(extractDir);
+    const excelFile = files.find(
+      (f) => f.endsWith(".xlsx") || f.endsWith(".xls")
+    );
+
+    if (!excelFile) {
+      return res.status(400).json({
+        success: false,
+        message: "No Excel file found in ZIP",
+      });
+    }
+
+    const rows = parseExcelFile(path.join(extractDir, excelFile));
+
+    let added = 0,
+      updated = 0,
+      skipped = 0,
+      errors = 0;
+
+    for (const row of rows) {
+      const name = row.name || "";
+      const email = row.email || "";
+      const role = (row.role || "").toLowerCase();
+      const department = row.department || "";
+
+      if (!name || !email || !role) {
+        skipped++;
+        continue;
+      }
+
+      if (
+        ![
+          "admin",
+          "superadmin",
+          "department_admin",
+          "functional_admin",
+        ].includes(role)
+      ) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        let user = await User.findOne({ email });
+
+        if (user) {
+          user.name = name;
+          user.role = role;
+          user.department = department;
+          await user.save();
+          updated++;
+        } else {
+          await User.create({
+            name,
+            email,
+            role,
+            department,
+            password: email,
+          });
+
+          added++;
+        }
+      } catch (err) {
+        errors++;
+      }
+    }
+
+    fs.rmSync(extractDir, { recursive: true });
+    fs.unlinkSync(zipPath);
+
+    return res.json({
+      success: true,
+      message: "Admin bulk upload completed",
+      summary: { added, updated, skipped, errors },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "Server error during admin upload",
+    });
+  }
+};
+
+/* ---------------------------------------------
+   CHECK PORT
+---------------------------------------------- */
+export const checkPort = async (req, res) => {
+  try {
+    const { exec } = await import("child_process");
+
+    exec("netstat -ano | findstr :8080", (err, stdout) => {
+      const used = stdout.trim() !== "";
+      res.json({
+        success: true,
+        message: `Port 8080 is ${used ? "in use" : "available"}`,
+        inUse: used,
+      });
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/* ---------------------------------------------
+   BULK UPLOAD – STUDENTS (FORM-DATA)
+---------------------------------------------- */
+export const bulkUploadStudentsForm = async (req, res) => {
+  try {
+    if (!req.files?.file)
+      return res
+        .status(400)
+        .json({ success: false, message: "Excel file required" });
+
+    const excelFile = req.files.file[0];
+    const rows = parseExcelFile(excelFile.path);
+
+    let added = 0,
+      updated = 0,
+      skipped = 0,
+      errors = 0;
+
+    for (const row of rows) {
+      const name =
+        row.name || row.Name || row.NAME || row.fullname || row.FullName;
+      const email = row.email || row.Email || row.EMAIL;
+      const usn = (row.usn || row.USN || row.Usn || "").toUpperCase();
+      const department =
+        row.department || row.Department || row.DEPT || row.dept;
+      const year = row.year || row.Year || row.YEAR;
+
+      if (!name || !email || !usn) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        let user = await User.findOne({ usn });
+
+        if (user) {
+          if (name) user.name = name;
+          if (email) user.email = email;
+          if (department) user.department = department;
+          if (year) user.year = year;
+          user.role = "student";
+          await user.save();
+          updated++;
+        } else {
+          const randomPassword = generatePassword();
+          const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+          await User.create({
+            name,
+            email,
+            password: hashedPassword,
+            role: "student",
+            department,
+            year,
+            usn,
+          });
+
+          try {
+            await sendEmail(
+              email,
+              "Your CampusConnect Student Account",
+              `Hello ${name},\n\nYour account created.\nEmail: ${email}\nPassword: ${randomPassword}\n\n– CampusConnect`
+            );
+          } catch (e) {
+            console.error("Email failed:", e.message);
+          }
+
+          added++;
+        }
+      } catch (err) {
+        console.error("Student bulk error:", err.message);
+        errors++;
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: "Student bulk upload completed",
+      summary: { added, updated, skipped, errors },
+    });
+  } catch (error) {
+    console.error("Bulk upload error:", error.message);
+    return res
+      .status(500)
+      .json({ success: false, message: error.message || "Server error" });
+  }
+};
+export const checkEmail = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) return res.status(400).json({ success: false, exists: false });
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+    return res.json({
+      success: true,
+      exists: !!user,
+    });
+  } catch (err) {
+    console.error("checkEmail error:", err);
+    return res.json({ success: false, exists: false });
   }
 };

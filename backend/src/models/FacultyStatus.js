@@ -1,3 +1,4 @@
+// backend/src/models/FacultyStatus.js
 import mongoose from "mongoose";
 
 const DAYS = [
@@ -30,8 +31,8 @@ const facultyStatusSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Available", "In Class", "Busy", "On Leave", "Offline"],
-      default: "Offline",
+      enum: ["Available", "Not Available"], // ✅ simplified
+      default: "Not Available", // ✅ default
       index: true,
     },
     message: { type: String, trim: true },
@@ -47,9 +48,3 @@ facultyStatusSchema.index({ status: 1, updatedAt: -1 });
 facultyStatusSchema.index({ "officeHours.day": 1 });
 
 export default mongoose.model("FacultyStatus", facultyStatusSchema);
-
-
-
-
-
-
